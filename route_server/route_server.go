@@ -29,6 +29,7 @@ import "encoding/binary"
 import "encoding/json"
 import log "github.com/golang/glog"
 import "github.com/garyburd/redigo/redis"
+import "im_service/common"
 
 var config *RouteConfig
 var clients ClientSet
@@ -85,20 +86,20 @@ func FindRoomClientSet(id *AppRoomID) ClientSet {
 type Route struct {
 	appid     int64
 	mutex     sync.Mutex
-	uids      IntSet
-	room_ids  IntSet
+	uids      common.IntSet
+	room_ids  common.IntSet
 }
 
 func NewRoute(appid int64) *Route {
 	r := new(Route)
 	r.appid = appid
-	r.uids = NewIntSet()
-	r.room_ids = NewIntSet()
+	r.uids = common.NewIntSet()
+	r.room_ids = common.NewIntSet()
 	return r
 }
 
 
-func (route *Route) IsIntersect(s IntSet) bool {
+func (route *Route) IsIntersect(s common.IntSet) bool {
 	route.mutex.Lock()
 	defer route.mutex.Unlock()
 	

@@ -19,37 +19,31 @@
 
 package main
 
-type IntSet map[int64]struct{}
+import "log"
+import "github.com/richmonkey/cfg"
 
-func NewIntSet() IntSet {
-	return make(map[int64]struct{})
+type RouteConfig struct {
+	listen string
+	redis_address       string
 }
 
-func (set IntSet) Add(v int64) {
-	if _, ok := set[v]; ok {
-		return
+func get_string(app_cfg map[string]string, key string) string {
+	concurrency, present := app_cfg[key]
+	if !present {
+		log.Fatalf("key:%s non exist", key)
 	}
-	set[v] = struct{}{}
+	return concurrency
 }
 
-func (set IntSet) IsMember(v int64) bool {
-	if _, ok := set[v]; ok {
-		return true
+func read_route_cfg(cfg_path string) *RouteConfig {
+	config := new(RouteConfig)
+	app_cfg := make(map[string]string)
+	err := cfg.Load(cfg_path, app_cfg)
+	if err != nil {
+		log.Fatal(err)
 	}
-	return false
-}
 
-func (set IntSet) Remove(v int64) {
-	if _, ok := set[v]; !ok {
-		return
-	}
-	delete(set, v)
-}
-
-func (set IntSet) Clone() IntSet {
-	n := make(map[int64]struct{})
-	for k, v := range set {
-		n[k] = v
-	}
-	return n
+	config.listen = get_string(app_cfg, "listen")
+	config.redis_address = get_string(app_cfg, "redis_address")
+	return config
 }
