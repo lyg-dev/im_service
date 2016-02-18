@@ -8,9 +8,10 @@ import "sync/atomic"
 import log "github.com/golang/glog"
 import "io/ioutil"
 import "github.com/bitly/go-simplejson"
+import "im_service/common"
 
 func SendGroupNotification(appid int64, gid int64, 
-	notification string, members IntSet) {
+	notification string, members common.IntSet) {
 
 	msg := &Message{cmd: MSG_GROUP_NOTIFICATION, body: &GroupNotification{notification}}
 
@@ -57,7 +58,7 @@ func PostGroupNotification(w http.ResponseWriter, req *http.Request) {
 		return		
 	}
 
-	members := NewIntSet()
+	members := common.NewIntSet()
 
 	marray, err := obj.Get("members").Array()
 	for _, m := range marray {

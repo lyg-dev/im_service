@@ -21,10 +21,11 @@ package main
 
 import "sync"
 import log "github.com/golang/glog"
+import "im_service/common"
 
 type GroupSubscriber struct {
 	ref_count int
-	groups    IntSet
+	groups    common.IntSet
 }
 
 type ApplicationSubscriber struct {
@@ -54,7 +55,7 @@ func (gc *GroupCenter) SubscribeGroup(appid int64, uid int64) {
 	if sub, ok := app.subs[uid]; ok {
 		sub.ref_count++
 	} else {
-		sub = &GroupSubscriber{ref_count:1, groups:NewIntSet()}
+		sub = &GroupSubscriber{ref_count:1, groups:common.NewIntSet()}
 		groups := group_manager.FindUserGroups(appid, uid)
 		for _, group := range groups {
 			if !group.super {

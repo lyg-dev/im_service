@@ -23,13 +23,14 @@ import "sync"
 import "database/sql"
 import _ "github.com/go-sql-driver/mysql"
 import log "github.com/golang/glog"
+import "im_service/common"
 
 type Group struct {
 	gid     int64
 	appid   int64
 	super   bool //超大群
 	mutex   sync.Mutex
-	members IntSet
+	members common.IntSet
 }
 
 func NewGroup(gid int64, appid int64, members []int64) *Group {
@@ -37,7 +38,7 @@ func NewGroup(gid int64, appid int64, members []int64) *Group {
 	group.appid = appid
 	group.gid = gid
 	group.super = false
-	group.members = NewIntSet()
+	group.members = common.NewIntSet()
 	for _, m := range members {
 		group.members.Add(m)
 	}
@@ -49,7 +50,7 @@ func NewSuperGroup(gid int64, appid int64, members []int64) *Group {
 	group.appid = appid
 	group.gid = gid
 	group.super = true
-	group.members = NewIntSet()
+	group.members = common.NewIntSet()
 	for _, m := range members {
 		group.members.Add(m)
 	}
@@ -57,7 +58,7 @@ func NewSuperGroup(gid int64, appid int64, members []int64) *Group {
 }
 
 
-func (group *Group) Members() IntSet {
+func (group *Group) Members() common.IntSet {
 	return group.members
 }
 
