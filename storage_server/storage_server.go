@@ -354,6 +354,7 @@ func (client *Client) PublishCSMessage(appid, receiver int64, cs *CustomerServic
 	}
 }
 
+
 func (client *Client) HandleSaveAndEnqueueGroup(sae *SAEMessage) {
 	if sae.msg == nil {
 		log.Error("sae msg is nil")
@@ -530,6 +531,7 @@ func (client *Client) HandleLoadOffline(id *LoadOffline) {
 			emsg.msg.cmd == MSG_GROUP_IM {
 			m := emsg.msg.body.(*IMMessage)
 			//同一台设备自己发出的消息
+		
 			if m.sender == id.uid && emsg.device_id == id.device_id {
 				continue
 			}
@@ -633,6 +635,7 @@ func (client *Client) HandleUnsubscribe(id *AppUserID) {
 	route.RemoveUserID(id.uid)
 }
 
+//指令处理
 func (client *Client) HandleMessage(msg *Message) {
 	log.Info("msg cmd:", Command(msg.cmd))
 	switch msg.cmd {
@@ -757,6 +760,7 @@ func FlushLoop() {
 	}
 }
 
+//redis连接池
 func NewRedisPool(server, password string) *redis.Pool {
 	return &redis.Pool{
 		MaxIdle:     100,
@@ -779,27 +783,32 @@ func NewRedisPool(server, password string) *redis.Pool {
 }
 
 func main() {
+	//cpu
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	//读参数
 	flag.Parse()
+	//参数为im.cfg文件地址
 	if len(flag.Args()) == 0 {
 		fmt.Println("usage: im config")
 		return
 	}
-
+	//读取配置
 	config = read_storage_cfg(flag.Args()[0])
 	log.Infof("listen:%s storage root:%s sync listen:%s master address:%s\n",
 		config.listen, config.storage_root, config.sync_listen, config.master_address)
-
+	//redis连接池
 	redis_pool = NewRedisPool(config.redis_address, "")
+	//新建/读取消息
 	storage = NewStorage(config.storage_root)
 
+	//主机备份机相关
 	master = NewMaster()
 	master.Start()
 	if len(config.master_address) > 0 {
 		slaver := NewSlaver(config.master_address)
 		slaver.Start()
 	}
-
+	//群组初始化
 	group_manager = NewGroupManager()
 	group_manager.Start()
 
@@ -810,7 +819,8 @@ func main() {
 	//刷新storage缓存的ack
 	go FlushLoop()
 	go waitSignal()
-
+	//备份监听
 	go ListenSyncClient()
+	//主机监听
 	ListenClient()
 }

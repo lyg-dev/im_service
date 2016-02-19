@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2014-2015, GoBelieve     
+ * Copyright (c) 2014-2015, GoBelieve
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,30 +25,31 @@ import "strings"
 import "github.com/richmonkey/cfg"
 
 type Config struct {
-	port                int
-	mysqldb_datasource  string
-	mysqldb_appdatasource  string
+	port                  int
+	mysqldb_datasource    string
+	mysqldb_appdatasource string
 
 	redis_address       string
 	http_listen_address string
 	socket_io_address   string
 
-	storage_addrs       []string
-	route_addrs         []string
+	storage_addrs []string
+	route_addrs   []string
 }
 
+//storage参数,对应im.cfg
 type StorageConfig struct {
-	listen              string
-	storage_root        string
-	mysqldb_datasource  string
-	redis_address       string
-	sync_listen         string
-	master_address      string
+	listen             string
+	storage_root       string
+	mysqldb_datasource string
+	redis_address      string
+	sync_listen        string
+	master_address     string
 }
 
 type RouteConfig struct {
-	listen string
-	redis_address       string
+	listen        string
+	redis_address string
 }
 
 func get_int(app_cfg map[string]string, key string) int {
@@ -63,6 +64,7 @@ func get_int(app_cfg map[string]string, key string) int {
 	return n
 }
 
+//读取配置方法,从map中找对应key的value
 func get_string(app_cfg map[string]string, key string) string {
 	concurrency, present := app_cfg[key]
 	if !present {
@@ -95,14 +97,14 @@ func read_cfg(cfg_path string) *Config {
 	config.socket_io_address = get_string(app_cfg, "socket_io_address")
 
 	str := get_string(app_cfg, "storage_pool")
-    array := strings.Split(str, " ")
+	array := strings.Split(str, " ")
 	config.storage_addrs = array
 	if len(config.storage_addrs) == 0 {
 		log.Fatal("storage pool config")
 	}
 
 	str = get_string(app_cfg, "route_pool")
-    array = strings.Split(str, " ")
+	array = strings.Split(str, " ")
 	config.route_addrs = array
 	if len(config.route_addrs) == 0 {
 		log.Fatal("route pool config")
@@ -114,6 +116,7 @@ func read_cfg(cfg_path string) *Config {
 func read_storage_cfg(cfg_path string) *StorageConfig {
 	config := new(StorageConfig)
 	app_cfg := make(map[string]string)
+	//引用包github.com/richmonkey/cfg 读取配置
 	err := cfg.Load(cfg_path, app_cfg)
 	if err != nil {
 		log.Fatal(err)

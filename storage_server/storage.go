@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2014-2015, GoBelieve     
+ * Copyright (c) 2014-2015, GoBelieve
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,15 +56,17 @@ func (storage *Storage) NextMessageID() int64 {
 	return msgid
 }
 
+//处理msgid指针
 func (storage *Storage) ExecMessage(msg *Message, msgid int64) {
 	storage.PeerStorage.ExecMessage(msg, msgid)
 	storage.GroupStorage.ExecMessage(msg, msgid)
 }
 
+//备份消息
 func (storage *Storage) SaveSyncMessageBatch(mb *MessageBatch) error {
 	storage.mutex.Lock()
 	defer storage.mutex.Unlock()
-	
+
 	filesize, err := storage.file.Seek(0, os.SEEK_END)
 	if err != nil {
 		log.Fatalln(err)
@@ -75,14 +77,14 @@ func (storage *Storage) SaveSyncMessageBatch(mb *MessageBatch) error {
 			log.Warning("skip msg:", mb.first_id)
 		} else {
 			log.Warning("write padding:", mb.first_id-filesize)
-			padding := make([]byte, mb.first_id - filesize)
+			padding := make([]byte, mb.first_id-filesize)
 			_, err = storage.file.Write(padding)
 			if err != nil {
 				log.Fatal("file write:", err)
 			}
 		}
 	}
-	
+
 	id := mb.first_id
 	buffer := new(bytes.Buffer)
 	for _, m := range mb.msgs {
@@ -104,7 +106,7 @@ func (storage *Storage) SaveSyncMessageBatch(mb *MessageBatch) error {
 func (storage *Storage) SaveSyncMessage(emsg *EMessage) error {
 	storage.mutex.Lock()
 	defer storage.mutex.Unlock()
-	
+
 	filesize, err := storage.file.Seek(0, os.SEEK_END)
 	if err != nil {
 		log.Fatalln(err)
@@ -115,14 +117,14 @@ func (storage *Storage) SaveSyncMessage(emsg *EMessage) error {
 			log.Warning("skip msg:", emsg.msgid)
 		} else {
 			log.Warning("write padding:", emsg.msgid-filesize)
-			padding := make([]byte, emsg.msgid - filesize)
+			padding := make([]byte, emsg.msgid-filesize)
 			_, err = storage.file.Write(padding)
 			if err != nil {
 				log.Fatal("file write:", err)
 			}
 		}
 	}
-	
+
 	storage.WriteMessage(storage.file, emsg.msg)
 	storage.ExecMessage(emsg.msg, emsg.msgid)
 	log.Info("save sync message:", emsg.msgid)
@@ -151,15 +153,15 @@ func (storage *Storage) LoadSyncMessagesInBackground(msgid int64) chan *MessageB
 			log.Info("file header is't complete")
 			return
 		}
-		
+
 		_, err = file.Seek(msgid, os.SEEK_SET)
 		if err != nil {
 			log.Info("seek file err:", err)
 			return
 		}
-		
+
 		const BATCH_COUNT = 5000
-		batch := &MessageBatch{msgs:make([]*Message, 0, BATCH_COUNT)}
+		batch := &MessageBatch{msgs: make([]*Message, 0, BATCH_COUNT)}
 		for {
 			msgid, err = file.Seek(0, os.SEEK_CUR)
 			if err != nil {
@@ -180,7 +182,7 @@ func (storage *Storage) LoadSyncMessagesInBackground(msgid int64) chan *MessageB
 
 			if len(batch.msgs) >= BATCH_COUNT {
 				c <- batch
-				batch = &MessageBatch{msgs:make([]*Message, 0, BATCH_COUNT)}
+				batch = &MessageBatch{msgs: make([]*Message, 0, BATCH_COUNT)}
 			}
 		}
 		if len(batch.msgs) > 0 {

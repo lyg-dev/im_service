@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2014-2015, GoBelieve     
+ * Copyright (c) 2014-2015, GoBelieve
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -33,29 +33,31 @@ const HEADER_SIZE = 32
 const MAGIC = 0x494d494d
 const VERSION = 1 << 16 //1.0
 
-
 type StorageFile struct {
-	root      string
-	db        *leveldb.DB
-	mutex     sync.Mutex
-	file      *os.File
+	root  string
+	db    *leveldb.DB
+	mutex sync.Mutex
+	file  *os.File
 }
 
 func NewStorageFile(root string) *StorageFile {
 	storage := new(StorageFile)
-
+	//storage的root
 	storage.root = root
-
+	//聊天记录messages的path
 	path := fmt.Sprintf("%s/%s", storage.root, "messages")
 	log.Info("message file path:", path)
+	//读写模式/追加模式/新建模式
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatal("open file:", err)
 	}
+	//文件大小
 	file_size, err := file.Seek(0, os.SEEK_END)
 	if err != nil {
 		log.Fatal("seek file")
 	}
+	//文件头校验
 	if file_size < HEADER_SIZE && file_size > 0 {
 		log.Info("file header is't complete")
 		err = file.Truncate(0)
@@ -64,23 +66,26 @@ func NewStorageFile(root string) *StorageFile {
 		}
 		file_size = 0
 	}
+	//如果是空文件,则写入文件头,magic和version
 	if file_size == 0 {
 		storage.WriteHeader(file)
 	}
+	//将文件指针赋予storage的file对象
 	storage.file = file
-
+	//离线path,离线文件存储在leveldb中
 	path = fmt.Sprintf("%s/%s", storage.root, "offline")
 	option := &opt.Options{}
 	db, err := leveldb.OpenFile(path, option)
 	if err != nil {
 		log.Fatal("open leveldb:", err)
 	}
-
+	//将离线文件(leveldb)赋值给storage的db对象
 	storage.db = db
-	
+	//初始化storage完成
 	return storage
 }
 
+//从leveldb中读取key&value列表
 func (storage *StorageFile) ListKeyValue() {
 	iter := storage.db.NewIterator(nil, nil)
 	for iter.Next() {
@@ -88,6 +93,7 @@ func (storage *StorageFile) ListKeyValue() {
 	}
 }
 
+//读取message文件
 func (storage *StorageFile) ReadMessage(file *os.File) *Message {
 	//校验消息起始位置的magic
 	var magic int32
@@ -101,17 +107,18 @@ func (storage *StorageFile) ReadMessage(file *os.File) *Message {
 		log.Warning("magic err:", magic)
 		return nil
 	}
+	//从文件读取message
 	msg := ReceiveMessage(file)
 	if msg == nil {
 		return msg
 	}
-	
+	//以下代码于上面重复,应该是Bug
 	err = binary.Read(file, binary.BigEndian, &magic)
 	if err != nil {
 		log.Info("read file err:", err)
 		return nil
 	}
-	
+
 	if magic != MAGIC {
 		log.Warning("magic err:", magic)
 		return nil
@@ -119,9 +126,12 @@ func (storage *StorageFile) ReadMessage(file *os.File) *Message {
 	return msg
 }
 
+//根据msg_id读取message
 func (storage *StorageFile) LoadMessage(msg_id int64) *Message {
+	//锁
 	storage.mutex.Lock()
 	defer storage.mutex.Unlock()
+	//msg_id实为文件定位,将file指针到需要的message处
 	_, err := storage.file.Seek(msg_id, os.SEEK_SET)
 	if err != nil {
 		log.Warning("seek file")
@@ -130,6 +140,7 @@ func (storage *StorageFile) LoadMessage(msg_id int64) *Message {
 	return storage.ReadMessage(storage.file)
 }
 
+//读取文件头
 func (storage *StorageFile) ReadHeader(file *os.File) (magic int, version int) {
 	header := make([]byte, HEADER_SIZE)
 	n, err := file.Read(header)
@@ -145,12 +156,15 @@ func (storage *StorageFile) ReadHeader(file *os.File) (magic int, version int) {
 	return
 }
 
+//写入文件头
 func (storage *StorageFile) WriteHeader(file *os.File) {
+	//const MAGIC = 0x494d494d
 	var m int32 = MAGIC
 	err := binary.Write(file, binary.BigEndian, m)
 	if err != nil {
 		log.Fatalln(err)
 	}
+	//const VERSION = 1 << 16 //1.0
 	var v int32 = VERSION
 	err = binary.Write(file, binary.BigEndian, v)
 	if err != nil {
@@ -163,9 +177,11 @@ func (storage *StorageFile) WriteHeader(file *os.File) {
 	}
 }
 
+//写入message
 func (storage *StorageFile) WriteMessage(file io.Writer, msg *Message) {
 	buffer := new(bytes.Buffer)
 	binary.Write(buffer, binary.BigEndian, int32(MAGIC))
+	//写入msg
 	WriteMessage(buffer, msg)
 	binary.Write(buffer, binary.BigEndian, int32(MAGIC))
 	buf := buffer.Bytes()
@@ -185,10 +201,10 @@ func (storage *StorageFile) saveMessage(msg *Message) int64 {
 		log.Fatalln(err)
 	}
 	storage.WriteMessage(storage.file, msg)
-	master.ewt <- &EMessage{msgid:msgid, msg:msg}
+	master.ewt <- &EMessage{msgid: msgid, msg: msg}
 	log.Info("save message:", Command(msg.cmd), " ", msgid)
 	return msgid
-	
+
 }
 
 func (storage *StorageFile) SaveMessage(msg *Message) int64 {

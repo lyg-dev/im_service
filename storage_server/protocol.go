@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2014-2015, GoBelieve     
+ * Copyright (c) 2014-2015, GoBelieve
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -31,11 +31,13 @@ const MSG_HEARTBEAT = 1
 const MSG_AUTH = 2
 
 const MSG_AUTH_STATUS = 3
+
 //persistent
 const MSG_IM = 4
 
 const MSG_ACK = 5
 const MSG_RST = 6
+
 //persistent
 const MSG_GROUP_NOTIFICATION = 7
 const MSG_GROUP_IM = 8
@@ -56,6 +58,7 @@ const MSG_RT = 17
 const MSG_ENTER_ROOM = 18
 const MSG_LEAVE_ROOM = 19
 const MSG_ROOM_IM = 20
+
 //persistent
 const MSG_SYSTEM = 21
 
@@ -75,38 +78,39 @@ const DEFAULT_VERSION = 1
 
 var message_descriptions map[int]string = make(map[int]string)
 
-type MessageCreator func()IMessage
+type MessageCreator func() IMessage
+
 var message_creators map[int]MessageCreator = make(map[int]MessageCreator)
 
-type VersionMessageCreator func()IVersionMessage
+type VersionMessageCreator func() IVersionMessage
+
 var vmessage_creators map[int]VersionMessageCreator = make(map[int]VersionMessageCreator)
 
-
 func init() {
-	message_creators[MSG_AUTH] = func()IMessage {return new(Authentication)}
-	message_creators[MSG_ACK] = func()IMessage{return new(MessageACK)}
-	message_creators[MSG_GROUP_NOTIFICATION] = func()IMessage{return new(GroupNotification)}
+	message_creators[MSG_AUTH] = func() IMessage { return new(Authentication) }
+	message_creators[MSG_ACK] = func() IMessage { return new(MessageACK) }
+	message_creators[MSG_GROUP_NOTIFICATION] = func() IMessage { return new(GroupNotification) }
 
-	message_creators[MSG_PEER_ACK] = func()IMessage{return new(MessagePeerACK)}
-	message_creators[MSG_INPUTING] = func()IMessage{return new(MessageInputing)}
-	message_creators[MSG_SUBSCRIBE_ONLINE_STATE] = func()IMessage{return new(MessageSubscribeState)}
-	message_creators[MSG_ONLINE_STATE] = func()IMessage{return new(MessageOnlineState)}
-	message_creators[MSG_AUTH_TOKEN] = func()IMessage{return new(AuthenticationToken)}
+	message_creators[MSG_PEER_ACK] = func() IMessage { return new(MessagePeerACK) }
+	message_creators[MSG_INPUTING] = func() IMessage { return new(MessageInputing) }
+	message_creators[MSG_SUBSCRIBE_ONLINE_STATE] = func() IMessage { return new(MessageSubscribeState) }
+	message_creators[MSG_ONLINE_STATE] = func() IMessage { return new(MessageOnlineState) }
+	message_creators[MSG_AUTH_TOKEN] = func() IMessage { return new(AuthenticationToken) }
 
-	message_creators[MSG_LOGIN_POINT] = func()IMessage{return new(LoginPoint)}
-	message_creators[MSG_RT] = func()IMessage{return new(RTMessage)}
-	message_creators[MSG_ENTER_ROOM] = func()IMessage{return new(Room)}
-	message_creators[MSG_LEAVE_ROOM] = func()IMessage{return new(Room)}
-	message_creators[MSG_ROOM_IM] = func()IMessage{return &RoomMessage{new(RTMessage)}}
-	message_creators[MSG_SYSTEM] = func()IMessage{return new(SystemMessage)}
-	message_creators[MSG_UNREAD_COUNT] = func()IMessage{return new(MessageUnreadCount)}
-	message_creators[MSG_CUSTOMER_SERVICE] = func()IMessage{return new(CustomerServiceMessage)}
-	message_creators[MSG_VOIP_CONTROL] = func()IMessage{return new(VOIPControl)}
+	message_creators[MSG_LOGIN_POINT] = func() IMessage { return new(LoginPoint) }
+	message_creators[MSG_RT] = func() IMessage { return new(RTMessage) }
+	message_creators[MSG_ENTER_ROOM] = func() IMessage { return new(Room) }
+	message_creators[MSG_LEAVE_ROOM] = func() IMessage { return new(Room) }
+	message_creators[MSG_ROOM_IM] = func() IMessage { return &RoomMessage{new(RTMessage)} }
+	message_creators[MSG_SYSTEM] = func() IMessage { return new(SystemMessage) }
+	message_creators[MSG_UNREAD_COUNT] = func() IMessage { return new(MessageUnreadCount) }
+	message_creators[MSG_CUSTOMER_SERVICE] = func() IMessage { return new(CustomerServiceMessage) }
+	message_creators[MSG_VOIP_CONTROL] = func() IMessage { return new(VOIPControl) }
 
-	vmessage_creators[MSG_GROUP_IM] = func()IVersionMessage{return new(IMMessage)}
-	vmessage_creators[MSG_IM] = func()IVersionMessage{return new(IMMessage)}
+	vmessage_creators[MSG_GROUP_IM] = func() IVersionMessage { return new(IMMessage) }
+	vmessage_creators[MSG_IM] = func() IVersionMessage { return new(IMMessage) }
 
-	vmessage_creators[MSG_AUTH_STATUS] = func()IVersionMessage{return new(AuthenticationStatus)}
+	vmessage_creators[MSG_AUTH_STATUS] = func() IVersionMessage { return new(AuthenticationStatus) }
 
 	message_descriptions[MSG_AUTH] = "MSG_AUTH"
 	message_descriptions[MSG_AUTH_STATUS] = "MSG_AUTH_STATUS"
@@ -133,6 +137,7 @@ func init() {
 }
 
 type Command int
+
 func (cmd Command) String() string {
 	c := int(cmd)
 	if desc, ok := message_descriptions[c]; ok {
@@ -153,10 +158,10 @@ type IVersionMessage interface {
 }
 
 type Message struct {
-	cmd  int
-	seq  int
+	cmd     int
+	seq     int
 	version int
-	
+
 	body interface{}
 }
 
@@ -193,10 +198,11 @@ func (message *Message) FromData(buff []byte) bool {
 }
 
 type RTMessage struct {
-	sender    int64
-	receiver  int64
-	content   string
+	sender   int64
+	receiver int64
+	content  string
 }
+
 func (message *RTMessage) ToData() []byte {
 	buffer := new(bytes.Buffer)
 	binary.Write(buffer, binary.BigEndian, message.sender)
@@ -217,7 +223,6 @@ func (rt *RTMessage) FromData(buff []byte) bool {
 	return true
 }
 
-
 type IMMessage struct {
 	sender    int64
 	receiver  int64
@@ -225,7 +230,6 @@ type IMMessage struct {
 	msgid     int32
 	content   string
 }
-
 
 func (message *IMMessage) ToDataV0() []byte {
 	buffer := new(bytes.Buffer)
@@ -248,7 +252,6 @@ func (im *IMMessage) FromDataV0(buff []byte) bool {
 	im.content = string(buff[20:])
 	return true
 }
-
 
 func (message *IMMessage) ToDataV1() []byte {
 	buffer := new(bytes.Buffer)
@@ -274,7 +277,6 @@ func (im *IMMessage) FromDataV1(buff []byte) bool {
 	return true
 }
 
-
 func (im *IMMessage) ToData(version int) []byte {
 	if version == 0 {
 		return im.ToDataV0()
@@ -291,9 +293,8 @@ func (im *IMMessage) FromData(version int, buff []byte) bool {
 	}
 }
 
-
 type Authentication struct {
-	uid         int64
+	uid int64
 }
 
 func (auth *Authentication) ToData() []byte {
@@ -318,7 +319,6 @@ type AuthenticationToken struct {
 	device_id   string
 }
 
-
 func (auth *AuthenticationToken) ToData() []byte {
 	var l int8
 
@@ -339,7 +339,7 @@ func (auth *AuthenticationToken) ToData() []byte {
 
 func (auth *AuthenticationToken) FromData(buff []byte) bool {
 	var l int8
-	if (len(buff) <= 3) {
+	if len(buff) <= 3 {
 		return false
 	}
 	auth.platform_id = int8(buff[0])
@@ -367,7 +367,7 @@ func (auth *AuthenticationToken) FromData(buff []byte) bool {
 
 type AuthenticationStatus struct {
 	status int32
-	ip int32 //兼容版本0
+	ip     int32 //兼容版本0
 }
 
 func (auth *AuthenticationStatus) ToData(version int) []byte {
@@ -395,11 +395,10 @@ func (auth *AuthenticationStatus) FromData(version int, buff []byte) bool {
 	return true
 }
 
-
 type LoginPoint struct {
-	up_timestamp      int32
-	platform_id       int8
-	device_id         string
+	up_timestamp int32
+	platform_id  int8
+	device_id    string
 }
 
 func (point *LoginPoint) ToData() []byte {
@@ -422,7 +421,6 @@ func (point *LoginPoint) FromData(buff []byte) bool {
 	point.device_id = string(buff[5:])
 	return true
 }
-
 
 type MessageACK struct {
 	seq int32
@@ -524,11 +522,11 @@ func (sys *SystemMessage) FromData(buff []byte) bool {
 }
 
 type CustomerServiceMessage struct {
-	customer_id    int64//普通用户id
-	sender    int64
-	receiver  int64
-	timestamp int32
-	content   string
+	customer_id int64 //普通用户id
+	sender      int64
+	receiver    int64
+	timestamp   int32
+	content     string
 }
 
 func (cs *CustomerServiceMessage) ToData() []byte {
@@ -565,7 +563,6 @@ func (cs *CustomerServiceMessage) FromData(buff []byte) bool {
 	return true
 }
 
-
 type GroupNotification struct {
 	notification string
 }
@@ -573,18 +570,19 @@ type GroupNotification struct {
 func (notification *GroupNotification) ToData() []byte {
 	return []byte(notification.notification)
 }
- 
+
 func (notification *GroupNotification) FromData(buff []byte) bool {
 	notification.notification = string(buff)
 	return true
 }
 
 type Room int64
+
 func (room *Room) ToData() []byte {
 	buffer := new(bytes.Buffer)
 	binary.Write(buffer, binary.BigEndian, int64(*room))
 	buf := buffer.Bytes()
-	return buf	
+	return buf
 }
 
 func (room *Room) FromData(buff []byte) bool {
@@ -627,12 +625,9 @@ func (state *MessageOnlineState) FromData(buff []byte) bool {
 	return true
 }
 
-
-
 type MessageSubscribeState struct {
 	uids []int64
 }
-
 
 func (sub *MessageSubscribeState) ToData() []byte {
 	return nil
@@ -648,7 +643,6 @@ func (sub *MessageSubscribeState) FromData(buff []byte) bool {
 	}
 	return true
 }
-
 
 type VOIPControl struct {
 	sender   int64
@@ -677,10 +671,9 @@ func (ctl *VOIPControl) FromData(buff []byte) bool {
 	return true
 }
 
-
 type AppUserID struct {
-	appid    int64
-	uid      int64
+	appid int64
+	uid   int64
 }
 
 func (id *AppUserID) ToData() []byte {
@@ -696,7 +689,7 @@ func (id *AppUserID) FromData(buff []byte) bool {
 		return false
 	}
 
-	buffer := bytes.NewBuffer(buff)	
+	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &id.appid)
 	binary.Read(buffer, binary.BigEndian, &id.uid)
 
@@ -704,8 +697,8 @@ func (id *AppUserID) FromData(buff []byte) bool {
 }
 
 type AppRoomID struct {
-	appid    int64
-	room_id      int64
+	appid   int64
+	room_id int64
 }
 
 func (id *AppRoomID) ToData() []byte {
@@ -721,7 +714,7 @@ func (id *AppRoomID) FromData(buff []byte) bool {
 		return false
 	}
 
-	buffer := bytes.NewBuffer(buff)	
+	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &id.appid)
 	binary.Read(buffer, binary.BigEndian, &id.room_id)
 
@@ -729,9 +722,9 @@ func (id *AppRoomID) FromData(buff []byte) bool {
 }
 
 type AppGroupMemberID struct {
-	appid  int64
-	gid    int64
-	uid    int64
+	appid int64
+	gid   int64
+	uid   int64
 }
 
 func (id *AppGroupMemberID) ToData() []byte {
@@ -748,14 +741,13 @@ func (id *AppGroupMemberID) FromData(buff []byte) bool {
 		return false
 	}
 
-	buffer := bytes.NewBuffer(buff)	
+	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &id.appid)
 	binary.Read(buffer, binary.BigEndian, &id.gid)
 	binary.Read(buffer, binary.BigEndian, &id.uid)
 
 	return true
 }
-
 
 func WriteHeader(len int32, seq int32, cmd byte, version byte, buffer io.Writer) {
 	binary.Write(buffer, binary.BigEndian, len)
@@ -775,6 +767,7 @@ func ReadHeader(buff []byte) (int, int, int, int) {
 	return int(length), int(seq), int(cmd), int(version)
 }
 
+//写入message
 func WriteMessage(w *bytes.Buffer, msg *Message) {
 	body := msg.ToData()
 	WriteHeader(int32(len(body)), int32(msg.seq), byte(msg.cmd), byte(msg.version), w)
