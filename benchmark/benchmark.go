@@ -20,15 +20,15 @@ const PORT = 23000
 const APP_ID = 7
 const APP_KEY = "sVDIlIiDUm7tWPYWhi6kfNbrqui3ez44"
 const APP_SECRET = "0WiCxAU1jh76SbgaaFC7qIaBPm2zkyM1"
-const URL = "http://127.0.0.1:23002"
+const URL = "http://127.0.0.1:23000"
 
 var concurrent int
 var count int
 var c chan bool
 
 func init() {
-	flag.IntVar(&concurrent, "c", 10, "concurrent number")
-	flag.IntVar(&count, "n", 100000, "request number")
+	flag.IntVar(&concurrent, "c", 1, "concurrent number")
+	flag.IntVar(&count, "n", 1, "request number")
 }
 
 func login(uid int64) string {
@@ -49,6 +49,8 @@ func login(uid int64) string {
 
 	res, err := client.Do(req)
 	if err != nil {
+		fmt.Println(111)
+		fmt.Println(err)
 		return ""
 	}
 	defer res.Body.Close()
@@ -160,6 +162,7 @@ func main() {
 	for i := 0; i < concurrent; i++ {
 		go receive(u + int64(concurrent+i))
 	}
+
 	time.Sleep(2 * time.Second)
 	for i := 0; i < concurrent; i++ {
 		go send(u+int64(i), u+int64(i+concurrent))

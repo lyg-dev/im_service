@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2014-2015, GoBelieve     
+ * Copyright (c) 2014-2015, GoBelieve
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,6 +18,7 @@
  */
 
 package main
+
 import "bytes"
 import "encoding/binary"
 import "fmt"
@@ -43,25 +44,27 @@ const MSG_PUBLISH_ROOM = 138
 
 var message_descriptions map[int]string = make(map[int]string)
 
-type MessageCreator func()IMessage
+type MessageCreator func() IMessage
+
 var message_creators map[int]MessageCreator = make(map[int]MessageCreator)
 
-type VersionMessageCreator func()IVersionMessage
+type VersionMessageCreator func() IVersionMessage
+
 var vmessage_creators map[int]VersionMessageCreator = make(map[int]VersionMessageCreator)
 
 func init() {
-	message_creators[MSG_SUBSCRIBE] = func()IMessage{return new(AppUserID)}
-	message_creators[MSG_UNSUBSCRIBE] = func()IMessage{return new(AppUserID)}
-	message_creators[MSG_PUBLISH] = func()IMessage{return new(AppMessage)}
-	message_creators[MSG_PUBLISH_OFFLINE] = func()IMessage{return new(AppMessage)}
+	message_creators[MSG_SUBSCRIBE] = func() IMessage { return new(AppUserID) }
+	message_creators[MSG_UNSUBSCRIBE] = func() IMessage { return new(AppUserID) }
+	message_creators[MSG_PUBLISH] = func() IMessage { return new(AppMessage) }
+	message_creators[MSG_PUBLISH_OFFLINE] = func() IMessage { return new(AppMessage) }
 
-	message_creators[MSG_SUBSCRIBE_GROUP] = func()IMessage{return new(AppGroupMemberID)}
-	message_creators[MSG_UNSUBSCRIBE_GROUP] = func()IMessage{return new(AppGroupMemberID)}
-	message_creators[MSG_PUBLISH_GROUP] = func()IMessage{return new(AppMessage)}
-	
-	message_creators[MSG_SUBSCRIBE_ROOM] = func()IMessage{return new(AppRoomID)}
-	message_creators[MSG_UNSUBSCRIBE_ROOM] = func()IMessage{return new(AppRoomID)}
-	message_creators[MSG_PUBLISH_ROOM] = func()IMessage{return new(AppMessage)}
+	message_creators[MSG_SUBSCRIBE_GROUP] = func() IMessage { return new(AppGroupMemberID) }
+	message_creators[MSG_UNSUBSCRIBE_GROUP] = func() IMessage { return new(AppGroupMemberID) }
+	message_creators[MSG_PUBLISH_GROUP] = func() IMessage { return new(AppMessage) }
+
+	message_creators[MSG_SUBSCRIBE_ROOM] = func() IMessage { return new(AppRoomID) }
+	message_creators[MSG_UNSUBSCRIBE_ROOM] = func() IMessage { return new(AppRoomID) }
+	message_creators[MSG_PUBLISH_ROOM] = func() IMessage { return new(AppMessage) }
 
 	message_descriptions[MSG_PUBLISH_OFFLINE] = "MSG_PUBLISH_OFFLINE"
 	message_descriptions[MSG_SUBSCRIBE] = "MSG_SUBSCRIBE"
@@ -78,13 +81,12 @@ func init() {
 }
 
 type AppMessage struct {
-	appid    int64
-	receiver int64
-	msgid    int64
+	appid     int64
+	receiver  int64
+	msgid     int64
 	device_id int64
-	msg      *Message
+	msg       *Message
 }
-
 
 func (amsg *AppMessage) ToData() []byte {
 	if amsg.msg == nil {
@@ -139,10 +141,10 @@ func (amsg *AppMessage) FromData(buff []byte) bool {
 }
 
 type Message struct {
-	cmd  int
-	seq  int
+	cmd     int
+	seq     int
 	version int
-	
+
 	body interface{}
 }
 
@@ -189,8 +191,8 @@ type IVersionMessage interface {
 }
 
 type AppUserID struct {
-	appid    int64
-	uid      int64
+	appid int64
+	uid   int64
 }
 
 func (id *AppUserID) ToData() []byte {
@@ -206,7 +208,7 @@ func (id *AppUserID) FromData(buff []byte) bool {
 		return false
 	}
 
-	buffer := bytes.NewBuffer(buff)	
+	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &id.appid)
 	binary.Read(buffer, binary.BigEndian, &id.uid)
 
@@ -214,9 +216,9 @@ func (id *AppUserID) FromData(buff []byte) bool {
 }
 
 type AppGroupMemberID struct {
-	appid  int64
-	gid    int64
-	uid    int64
+	appid int64
+	gid   int64
+	uid   int64
 }
 
 func (id *AppGroupMemberID) ToData() []byte {
@@ -233,7 +235,7 @@ func (id *AppGroupMemberID) FromData(buff []byte) bool {
 		return false
 	}
 
-	buffer := bytes.NewBuffer(buff)	
+	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &id.appid)
 	binary.Read(buffer, binary.BigEndian, &id.gid)
 	binary.Read(buffer, binary.BigEndian, &id.uid)
@@ -242,8 +244,8 @@ func (id *AppGroupMemberID) FromData(buff []byte) bool {
 }
 
 type AppRoomID struct {
-	appid    int64
-	room_id      int64
+	appid   int64
+	room_id int64
 }
 
 func (id *AppRoomID) ToData() []byte {
@@ -259,7 +261,7 @@ func (id *AppRoomID) FromData(buff []byte) bool {
 		return false
 	}
 
-	buffer := bytes.NewBuffer(buff)	
+	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &id.appid)
 	binary.Read(buffer, binary.BigEndian, &id.room_id)
 
@@ -267,6 +269,7 @@ func (id *AppRoomID) FromData(buff []byte) bool {
 }
 
 type Command int
+
 func (cmd Command) String() string {
 	c := int(cmd)
 	if desc, ok := message_descriptions[c]; ok {
@@ -368,7 +371,7 @@ func ReceiveMessage(conn io.Reader) *Message {
 	message.seq = seq
 	message.version = version
 	if !message.FromData(buff) {
-		log.Warning("parse error")
+		log.Warning("parse error, cmd:%d ")
 		return nil
 	}
 	return message
