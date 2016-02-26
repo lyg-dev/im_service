@@ -29,12 +29,12 @@ func Test_SetAndEnqueue() {
 	}
 	defer storage.Close()
 	
-	im := &IMMessage{sender:1, receiver:1000, content:"1111"}
+	im := &IMMessage{sender:1, receiver:2, content:"1111"}
 	m := &Message{cmd:MSG_IM, body:im}
 	sae := &SAEMessage{}
 	sae.msg = m
 	sae.appid = appid
-	sae.receiver = 1000
+	sae.receiver = 2
 	sae.device_id = device_id
 
 	msgid, err := storage.SaveAndEnqueueMessage(sae)
@@ -44,7 +44,7 @@ func Test_SetAndEnqueue() {
 	}
 	log.Println("msgid:", msgid)
 
-	messages, err := storage.LoadOfflineMessage(appid, 1000, device_id)
+	messages, err := storage.LoadOfflineMessage(appid, 2, device_id)
 	if err != nil {
 		log.Println("load offline message err:", err)
 		return
@@ -55,7 +55,7 @@ func Test_SetAndEnqueue() {
 			emsg.msgid, im.sender, im.receiver, string(im.content))
 	}
 
-	dq := &DQMessage{msgid:msgid, appid:appid, receiver:1000}
+	dq := &DQMessage{msgid:msgid, appid:appid, receiver:2}
 	err = storage.DequeueMessage(dq)
 	if err != nil {
 		log.Println("dequeue err:", err)
@@ -74,12 +74,12 @@ func benchmark() {
 	defer storage.Close()
 
 	for i := 0; i < count; i++ {
-		im := &IMMessage{sender:1, receiver:1000, content:"1111"}
+		im := &IMMessage{sender:1, receiver:2, content:"1111"}
 		m := &Message{cmd:MSG_IM, body:im}
 		sae := &SAEMessage{}
 		sae.msg = m
 		sae.appid = appid
-		sae.receiver = 1000
+		sae.receiver = 2
 
 		_, err := storage.SaveAndEnqueueMessage(sae)
 		if err != nil {

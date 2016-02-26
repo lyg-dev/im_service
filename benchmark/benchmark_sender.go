@@ -17,7 +17,7 @@ func init() {
 	flag.Int64Var(&last, "last", 0, "last uid")
 
 	flag.StringVar(&host, "host", "127.0.0.1", "host")
-	flag.IntVar(&port, "port", 23000, "port")
+	flag.IntVar(&port, "port", 13890, "port")
 }
 
 func send(uid int64) {
