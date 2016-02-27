@@ -57,6 +57,7 @@ func NewClient(conn interface{}) *Client {
 
 	client.IMClient = &IMClient{&client.Connection}
 	client.RoomClient = &RoomClient{Connection:&client.Connection}
+	client.RoomClient.room_ids = make(map[int64]struct{})
 	client.VOIPClient = &VOIPClient{Connection:&client.Connection}
 	client.CSClient = &CSClient{Connection:&client.Connection}
 	return client

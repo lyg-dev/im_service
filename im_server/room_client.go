@@ -21,17 +21,24 @@ package main
 
 import log "github.com/golang/glog"
 import "unsafe"
+import "sync"
 
 type RoomClient struct {
 	*Connection
-	room_id int64
+	room_ids map[int64]struct{}
+	room_mutex  sync.Mutex
 }
 
 func (client *RoomClient) Logout(route *Route) {
-	if client.room_id > 0 {
-		route.RemoveRoomClient(client.room_id, client.Client())
-		channel := GetRoomChannel(client.room_id)
-		channel.UnsubscribeRoom(client.appid, client.room_id)
+	client.room_mutex.Lock()
+	defer client.room_mutex.Unlock()
+	
+	for room_id, _ := range client.room_ids {
+		route.RemoveRoomClient(room_id, client.Client())
+		channel := GetRoomChannel(room_id)
+		channel.UnsubscribeRoom(client.appid, room_id)
+		
+		delete(client.room_ids, room_id)
 	}
 }
 
@@ -47,6 +54,9 @@ func (client *RoomClient) HandleMessage(msg *Message) {
 }
 
 func (client *RoomClient) HandleEnterRoom(room *Room){
+	client.room_mutex.Lock()
+	defer client.room_mutex.Unlock()
+	
 	if client.uid == 0 {
 		log.Warning("client has't been authenticated")
 		return
@@ -54,21 +64,20 @@ func (client *RoomClient) HandleEnterRoom(room *Room){
 
 	room_id := room.RoomID()
 	log.Info("enter room id:", room_id)
-	if room_id == 0 || client.room_id == room_id {
+	if room_id == 0{
 		return
 	}
-	route := app_route.FindOrAddRoute(client.appid)
-	if client.room_id > 0 {
-		channel := GetRoomChannel(client.room_id)
-		channel.UnsubscribeRoom(client.appid, client.room_id)
-
-		route.RemoveRoomClient(client.room_id, client.Client())
+	
+	if _, ok := client.room_ids[room_id]; ok {
+		return
 	}
+	
+	route := app_route.FindOrAddRoute(client.appid)
 
-	client.room_id = room_id
-	route.AddRoomClient(client.room_id, client.Client())
-	channel := GetRoomChannel(client.room_id)
-	channel.SubscribeRoom(client.appid, client.room_id)
+	client.room_ids[room_id] = struct{}{}
+	route.AddRoomClient(room_id, client.Client())
+	channel := GetRoomChannel(room_id)
+	channel.SubscribeRoom(client.appid, room_id)
 }
 
 func (client *RoomClient) Client() *Client {
@@ -77,6 +86,8 @@ func (client *RoomClient) Client() *Client {
 }
 
 func (client *RoomClient) HandleLeaveRoom(room *Room) {
+	client.room_mutex.Lock()
+	defer client.room_mutex.Unlock()
 	if client.uid == 0 {
 		log.Warning("client has't been authenticated")
 		return
@@ -87,15 +98,16 @@ func (client *RoomClient) HandleLeaveRoom(room *Room) {
 	if room_id == 0 {
 		return
 	}
-	if client.room_id != room_id {
+	
+	if _, ok := client.room_ids[room_id]; !ok {
 		return
 	}
 
 	route := app_route.FindOrAddRoute(client.appid)
-	route.RemoveRoomClient(client.room_id, client.Client())
-	channel := GetRoomChannel(client.room_id)
-	channel.UnsubscribeRoom(client.appid, client.room_id)
-	client.room_id = 0
+	route.RemoveRoomClient(room_id, client.Client())
+	channel := GetRoomChannel(room_id)
+	channel.UnsubscribeRoom(client.appid, room_id)
+	delete(client.room_ids, room_id)
 }
 
 func (client *RoomClient) HandleRoomIM(room_im *RoomMessage, seq int) {
@@ -104,8 +116,8 @@ func (client *RoomClient) HandleRoomIM(room_im *RoomMessage, seq int) {
 		return
 	}
 	room_id := room_im.receiver
-	if room_id != client.room_id {
-		log.Warningf("room id:%d is't client's room id:%d\n", room_id, client.room_id)
+	if _, ok := client.room_ids[room_id]; !ok {
+		log.Warningf("room id:%d is't client's room\n", room_id)
 		return
 	}
 
@@ -120,7 +132,7 @@ func (client *RoomClient) HandleRoomIM(room_im *RoomMessage, seq int) {
 	}
 
 	amsg := &AppMessage{appid:client.appid, receiver:room_id, msg:m}
-	channel := GetRoomChannel(client.room_id)
+	channel := GetRoomChannel(room_id)
 	channel.PublishRoom(amsg)
 
 	client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
