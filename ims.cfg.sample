@@ -10,5 +10,6 @@ sync_listen=:3334
 
 #mysql的链接地址  用户名:密码@tcp(服务器地址:服务器端口)/数据库名称
 mysqldb_source=root:123456@tcp(127.0.0.1:3306)/im
+mysqldb_appsource=root:123456@tcp(127.0.0.1:3306)/app
 #redis服务器地址  服务器ip：服务器端口
 redis_address=127.0.0.1:6379

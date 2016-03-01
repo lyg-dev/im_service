@@ -19,7 +19,11 @@
 
 package main
 
-import "sync"
+import (
+	"time"
+	"sync"
+	"fmt"
+)
 import "database/sql"
 import _ "github.com/go-sql-driver/mysql"
 import log "github.com/golang/glog"
@@ -88,76 +92,16 @@ func (group *Group) IsEmpty() bool {
 	return len(group.members) == 0
 }
 
-func CreateGroup(db *sql.DB, appid int64, master int64, name string, super int8) int64 {
-	log.Info("create group super:", super)
-	stmtIns, err := db.Prepare("INSERT INTO `group`(appid, master, name, super) VALUES( ?, ?, ?, ? )")
-	if err != nil {
-		log.Info("error:", err)
-		return 0
-	}
-	defer stmtIns.Close()
-	result, err := stmtIns.Exec(appid, master, name, super)
-	if err != nil {
-		log.Info("error:", err)
-		return 0
-	}
-	gid, err := result.LastInsertId()
-	if err != nil {
-		log.Info("error:", err)
-		return 0
-	}
-	return gid
-}
-
-func DeleteGroup(db *sql.DB, group_id int64) bool {
-	var stmt1, stmt2 *sql.Stmt
-
-	tx, err := db.Begin()
-	if err != nil {
-		log.Info("error:", err)
-		return false
-	}
-
-	stmt1, err = tx.Prepare("DELETE FROM `group` WHERE id=?")
-	if err != nil {
-		log.Info("error:", err)
-		goto ROLLBACK
-	}
-	defer stmt1.Close()
-	_, err = stmt1.Exec(group_id)
-	if err != nil {
-		log.Info("error:", err)
-		goto ROLLBACK
-	}
-
-	stmt2, err = tx.Prepare("DELETE FROM group_member WHERE group_id=?")
-	if err != nil {
-		log.Info("error:", err)
-		goto ROLLBACK
-	}
-	defer stmt2.Close()
-	_, err = stmt2.Exec(group_id)
-	if err != nil {
-		log.Info("error:", err)
-		goto ROLLBACK
-	}
-
-	tx.Commit()
-	return true
-
-ROLLBACK:
-	tx.Rollback()
-	return false
-}
-
 func AddGroupMember(db *sql.DB, group_id int64, uid int64) bool {
-	stmtIns, err := db.Prepare("INSERT INTO group_member(group_id, uid) VALUES( ?, ? )")
+	sql := fmt.Sprintf("INSERT INTO `group_members_0%d` ( `group_id`, `user_id`, `create_time`, `update_time`) select '%d', %d, %d, %d from dual where not exists(select * from group_members_0%d where group_id='%d' and user_id=%d)",
+			group_id % 10, group_id, uid, time.Now().Unix(), time.Now().Unix(), group_id % 10, group_id, uid)
+	stmtIns, err := db.Prepare(sql)
 	if err != nil {
 		log.Info("error:", err)
 		return false
 	}
 	defer stmtIns.Close()
-	_, err = stmtIns.Exec(group_id, uid)
+	_, err = stmtIns.Exec()
 	if err != nil {
 		log.Info("error:", err)
 		return false
@@ -166,7 +110,8 @@ func AddGroupMember(db *sql.DB, group_id int64, uid int64) bool {
 }
 
 func RemoveGroupMember(db *sql.DB, group_id int64, uid int64) bool {
-	stmtIns, err := db.Prepare("DELETE FROM group_member WHERE group_id=? AND uid=?")
+	sql := fmt.Sprintf("delete from group_members_0%d where group_id=? and user_id=?", group_id % 10);
+	stmtIns, err := db.Prepare(sql)
 	if err != nil {
 		log.Info("error:", err)
 		return false
@@ -181,7 +126,7 @@ func RemoveGroupMember(db *sql.DB, group_id int64, uid int64) bool {
 }
 
 func LoadAllGroup(db *sql.DB) (map[int64]*Group, error) {
-	stmtIns, err := db.Prepare("SELECT id, appid, super FROM `group`")
+	stmtIns, err := db.Prepare("select id from `group` where isDeleted=0 and type=1")
 	if err != nil {
 		log.Info("error:", err)
 		return nil, nil
@@ -192,28 +137,22 @@ func LoadAllGroup(db *sql.DB) (map[int64]*Group, error) {
 	rows, err := stmtIns.Query()
 	for rows.Next() {
 		var id int64
-		var appid int64
-		var super int8
-		rows.Scan(&id, &appid, &super)
+		rows.Scan(&id)
 		members, err := LoadGroupMember(db, id)
 		if err != nil {
 			log.Info("error:", err)
 			continue
 		}
 
-		if super != 0 {
-			group := NewSuperGroup(id, appid, members)
-			groups[group.gid] = group
-		} else {
-			group := NewGroup(id, appid, members)
-			groups[group.gid] = group
-		}
+		group := NewSuperGroup(id, 1, members)
+		groups[group.gid] = group
 	}
 	return groups, nil
 }
 
 func LoadGroupMember(db *sql.DB, group_id int64) ([]int64, error) {
-	stmtIns, err := db.Prepare("SELECT uid FROM group_member WHERE group_id=?")
+	sql := fmt.Sprintf("SELECT user_id FROM group_members_0%d WHERE group_id=?", group_id % 10)
+	stmtIns, err := db.Prepare(sql)
 	if err != nil {
 		log.Info("error:", err)
 		return nil, err
