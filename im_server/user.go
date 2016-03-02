@@ -27,6 +27,8 @@ import "errors"
 import "database/sql"
 import _ "github.com/go-sql-driver/mysql"
 import "encoding/json"
+import "im_service/common"
+import "strconv"
 
 func LoadUserAccessToken(token string) (int64, int64, string, error) {
 	conn := redis_pool.Get()
@@ -87,88 +89,211 @@ func LoadUserInfoByAccessToken(token string) (int64, int64, string, error) {
 		return 0, 0, "", err
 	}
 	
-//	loadUserBasicDatas(db, id)
-	
 	return 1, id, uname, nil
 }
 
-func loadUserBasicDatas(db *sql.DB, uid int64) {
-	conn := redis_pool.Get()
-	defer conn.Close()
-	
-	key := fmt.Sprintf("im_user_friends_%s", uid)
+func LoadAllFriends(db *sql.DB) (map[int64]common.IntSet, error) {
 	
 	//加载用户好友列表
-    sql := fmt.Sprintf("SELECT friend_id FROM user_friends_0%d WHERE user_id=?", uid % 10)
-	stmt, err := db.Prepare(sql)
-	if err == nil {
-		rows, err := stmt.Query(uid)
-		for rows.Next() {
-			var fid int64
-			rows.Scan(&fid)
-			_, err = conn.Do("SADD", key, fid)
-			if err != nil {
-				log.Info("loadUserBasicDatas[add user friend to redis]error:", err)
+	friends := make(map[int64]common.IntSet)
+	
+	i := 0
+	for ; i < 10; i++ {
+		sql := fmt.Sprintf("SELECT user_id, friend_id FROM user_friends_0%d", i)
+		stmt, err := db.Prepare(sql)
+		if err == nil {
+			rows, _ := stmt.Query()
+			for rows.Next() {
+				var uid, fid int64
+				rows.Scan(&uid, &fid)
+				log.Infof("load friend from db: uid=%d, fid=%d", uid, fid)
+				if _, ok := friends[uid]; !ok {
+					friends[uid] = common.NewIntSet()
+				}
+				
+				friends[uid].Add(fid)
 			}
+		} else {
+			return nil, err
 		}
 	}
 	
-	key = fmt.Sprintf("im_user_blacks_%s", uid)
+	return friends, nil
+}
+
+func LoadAllBlacks(db *sql.DB) (map[int64]common.IntSet, error) {
+	
 	//加载用户黑名单列表
-	stmt, err = db.Prepare("SELECT blacks FROM user_blacks WHERE user_id=?")
-	if err == nil {
+	blacks := make(map[int64]common.IntSet)
+	
+	stmt, err := db.Prepare("SELECT user_id, blacks FROM user_blacks")
+	if err != nil {
+		return nil, err
+	}
+	
+	rows, err := stmt.Query()
+	for rows.Next() {
+		var uid int64
 		var blacksStr string
-		err = stmt.QueryRow(uid).Scan(&blacksStr)
+		
+		err = rows.Scan(&uid, &blacksStr)
 		if err == nil {
-			var black_ids []int64
+			var black_ids []string
 			err = json.Unmarshal([]byte(blacksStr), &black_ids)
 			
 			if err == nil {
-				for _, bid := range black_ids {
-					_, err = conn.Do("SADD", key, bid)
-					if err != nil {
-						log.Info("loadUserBasicDatas[add user black to redis]error:", err)
+				for _, b := range black_ids {
+					bid, _ := strconv.ParseInt(b, 10, 64)
+					if _, ok := blacks[uid]; !ok {
+						blacks[uid] = common.NewIntSet()
 					}
+					log.Infof("load black from db: uid=%d, bid=%d", uid, bid)
+					blacks[uid].Add(bid)
 				}
+			} else {
+				log.Errorf("1 load black error: %s", err)
 			}
+		} else {
+			log.Errorf("2 load black error: %s", err)
+		}
+	}
+		
+	return blacks, nil
+}
+
+func FriendAdd(db *sql.DB, uid int64, fid int64) bool {
+	sql := fmt.Sprintf("INSERT INTO `user_friends_0%d` ( `user_id`, `friend_id`, `create_time`) select %d, %d, %d from dual where not exists(select * from user_friends_0%d where user_id=%d and friend_id=%d)",
+			uid % 10, uid, fid, time.Now().Unix(), uid % 10, uid, fid)
+	stmtIns, err := db.Prepare(sql)
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+	defer stmtIns.Close()
+	_, err = stmtIns.Exec()
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+	return true
+}
+
+func FriendRemove(db *sql.DB, uid int64, fid int64) bool {
+	sql := fmt.Sprintf("delete from user_friends_0%d where user_id=? and friend_id=?", uid % 10);
+	stmtIns, err := db.Prepare(sql)
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+	defer stmtIns.Close()
+	_, err = stmtIns.Exec(uid, fid)
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+	return true
+}
+
+func BlackAdd(db *sql.DB, uid int64, bid int64) bool {
+	stmt, err := db.Prepare("SELECT blacks FROM user_blacks WHERE user_id=?")
+	if err != nil {
+		return false
+	}
+	defer stmt.Close()
+	
+	insert := 0;
+	blacks := make([]string, 0, 4)
+	var blacksStr string
+	err = stmt.QueryRow(uid).Scan(&blacksStr)
+	if err == sql.ErrNoRows {
+		insert = 1;
+		blacks = append(blacks, strconv.FormatInt(bid, 10))
+	} else if err != nil {
+		return false
+	} else {
+		err = json.Unmarshal([]byte(blacksStr), &blacks)
+		if err == nil {
+			set := common.NewIntSet()
+			for _, b := range blacks {
+				black_id, _ := strconv.ParseInt(b, 10, 64)
+				set.Add(black_id)
+			}
+			
+			if !set.IsMember(bid) {
+				blacks = append(blacks, strconv.FormatInt(bid, 10))
+			}
+		} else {
+			blacks = append(blacks, strconv.FormatInt(bid, 10))
 		}
 	}
 	
-	//加载用户群组列表
-	key = fmt.Sprintf("im_user_groups_%s", uid)
-	
-	sql = fmt.Sprintf("SELECT group_id FROM user_groups_0%d WHERE type=1 AND user_id=?", uid % 10)
-	
-	stmt, err = db.Prepare(sql)
-	if err == nil {
-		rows, err := stmt.Query(uid)
-		for rows.Next() {
-			var gid int64
-			rows.Scan(&gid)
-			_, err = conn.Do("SADD", key, gid)
-			if err != nil {
-				log.Info("loadUserBasicDatas[add user group to redis]error:", err)
-			}
-		}
+	bs, err := json.Marshal(blacks)
+	if err != nil {
+		return false
 	}
 	
-	//加载聊天室列表
-	key = fmt.Sprintf("im_user_rooms_%s", uid)
+	blacksStr = string(bs)
 	
-	sql = fmt.Sprintf("SELECT room_id_20302 FROM user_groups_0%d WHERE type=2 AND user_id=?", uid % 10)
-	
-	stmt, err = db.Prepare(sql)
-	if err == nil {
-		rows, err := stmt.Query(uid)
-		for rows.Next() {
-			var rid int64
-			rows.Scan(&rid)
-			_, err = conn.Do("SADD", key, rid)
-			if err != nil {
-				log.Info("loadUserBasicDatas[add user room to redis]error:", err)
-			}
+	if insert == 1 {
+		stmt, err := db.Prepare("INSERT INTO user_blacks (user_id, blacks, update_time) VALUES (?, ?, ?)")
+		if err != nil {
+			return false
 		}
+		stmt.Exec(uid, blacksStr, time.Now().Unix())
+	} else {
+		stmt, err := db.Prepare("UPDATE user_blacks SET blacks=?, update_time=? WHERE user_id=?")
+		if err != nil {
+			return false
+		}
+		stmt.Exec(blacksStr, time.Now().Unix(), uid)
 	}
+	
+	return true
+}
+
+func BlackRemove(db *sql.DB, uid int64, bid int64) bool {
+	stmt, err := db.Prepare("SELECT blacks FROM user_blacks WHERE user_id=?")
+	if err != nil {
+		return false
+	}
+	defer stmt.Close()
+	
+	var blacksStr string
+	err = stmt.QueryRow(uid).Scan(&blacksStr)
+	if err == sql.ErrNoRows {
+		return true
+	} else if err != nil {
+		return false
+	}
+	
+	blacks := make([]string, 0, 4)
+	_ = json.Unmarshal([]byte(blacksStr), &blacks)
+	
+	leftBlacks := make([]string, 0, 4)
+	b := strconv.FormatInt(bid, 10)
+	for _, black_id := range blacks {
+		
+		if black_id == b {
+			continue
+		}
+		
+		leftBlacks = append(leftBlacks, black_id)
+	}
+	
+	bs, err := json.Marshal(leftBlacks)
+	if err != nil {
+		return false
+	}
+	
+	blacksStr = string(bs)
+	
+	stmt, err = db.Prepare("UPDATE user_blacks SET blacks=?, update_time=? WHERE user_id=?")
+	if err != nil {
+		return false
+	}
+	stmt.Exec(blacksStr, time.Now().Unix(), uid)
+	
+	return true
 }
 
 func CountUser(appid int64, uid int64) {

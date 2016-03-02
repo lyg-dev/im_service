@@ -124,6 +124,13 @@ func (client *IMClient) HandleIMMessage(msg *IMMessage, seq int) {
 		log.Warningf("im message sender:%d client uid:%d\n", msg.sender, client.uid)
 		return
 	}
+	
+	//判断黑名单
+	if user_manager.IsBlack(msg.receiver, msg.sender) {
+		client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
+		return
+	}
+	
 	msg.timestamp = int32(time.Now().Unix())
 	m := &Message{cmd: MSG_IM, version:DEFAULT_VERSION, body: msg}
 

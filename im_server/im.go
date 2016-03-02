@@ -39,6 +39,7 @@ var group_center *GroupCenter
 
 var app_route *AppRoute
 var group_manager *GroupManager
+var user_manager *UserManager
 var redis_pool *redis.Pool
 var storage_pools []*StorageConnPool
 var config *Config
@@ -357,6 +358,9 @@ func main() {
 	group_manager = NewGroupManager()
 	group_manager.observer = IMGroupObserver(0)
 	group_manager.Start()
+	
+	user_manager = NewUserManager()
+	user_manager.Start()
 
 	StartHttpServer(config.http_listen_address)
 
