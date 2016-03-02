@@ -50,6 +50,8 @@ func (client *RoomClient) HandleMessage(msg *Message) {
 		client.HandleLeaveRoom(msg.body.(*Room))
 	case MSG_ROOM_IM:
 		client.HandleRoomIM(msg.body.(*RoomMessage), msg.seq)
+	case MSG_TRANSMIT_ROOM:
+		client.HandleTransmitRoom(msg.body.(*RoomMessage), msg.seq)
 	}
 }
 
@@ -122,6 +124,34 @@ func (client *RoomClient) HandleRoomIM(room_im *RoomMessage, seq int) {
 	}
 
 	m := &Message{cmd:MSG_ROOM_IM, body:room_im}
+	route := app_route.FindOrAddRoute(client.appid)
+	clients := route.FindRoomClientSet(room_id)
+	for c, _ := range(clients) {
+		if c == client.Client() {
+			continue
+		}
+		c.wt <- m
+	}
+
+	amsg := &AppMessage{appid:client.appid, receiver:room_id, msg:m}
+	channel := GetRoomChannel(room_id)
+	channel.PublishRoom(amsg)
+
+	client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
+}
+
+func (client *RoomClient) HandleTransmitRoom(room_im *RoomMessage, seq int) {
+	if client.uid == 0 {
+		log.Warning("client has't been authenticated")
+		return
+	}
+	room_id := room_im.receiver
+	if _, ok := client.room_ids[room_id]; !ok {
+		log.Warningf("room id:%d is't client's room\n", room_id)
+		return
+	}
+
+	m := &Message{cmd:MSG_TRANSMIT_ROOM, body:room_im}
 	route := app_route.FindOrAddRoute(client.appid)
 	clients := route.FindRoomClientSet(room_id)
 	for c, _ := range(clients) {

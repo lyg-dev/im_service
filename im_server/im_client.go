@@ -162,18 +162,12 @@ func (client *IMClient) HandleGroupIMMessage(msg *IMMessage, seq int) {
 		log.Warning("can't find group:", msg.receiver)
 		return
 	}
-	if group.super {
-		_, err := SaveGroupMessage(client.appid, msg.receiver, client.device_ID, m)
+	
+	members := group.Members()
+	for member := range members {
+		_, err := SaveMessage(client.appid, member, client.device_ID, m)
 		if err != nil {
-			return
-		}
-	} else {
-		members := group.Members()
-		for member := range members {
-			_, err := SaveMessage(client.appid, member, client.device_ID, m)
-			if err != nil {
-				continue
-			}
+			continue
 		}
 	}
 	
@@ -245,6 +239,64 @@ func (client *IMClient) HandleRTMessage(msg *Message) {
 	log.Infof("realtime message sender:%d receiver:%d", rt.sender, rt.receiver)
 }
 
+func (client *IMClient) HandleTransmitUser(msg *IMMessage, seq int) {
+	if client.uid == 0 {
+		log.Warning("client has't been authenticated")
+		return
+	}
+
+	if msg.sender != client.uid {
+		log.Warningf("transmit message sender:%d client uid:%d\n", msg.sender, client.uid)
+		return
+	}
+	
+	//判断黑名单
+	if user_manager.IsBlack(msg.receiver, msg.sender) {
+		client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
+		return
+	}
+	
+	msg.timestamp = int32(time.Now().Unix())
+	m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+
+	msgid, err := SaveMessage(client.appid, msg.receiver, client.device_ID, m)
+	if err != nil {
+		return
+	}
+
+	client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
+
+	atomic.AddInt64(&server_summary.in_message_count, 1)
+	log.Infof("peer transmit message sender:%d receiver:%d msgid:%d\n", msg.sender, msg.receiver, msgid)
+}
+
+func (client *IMClient) HandleTransmitGroup(msg *IMMessage, seq int) {
+	if client.uid == 0 {
+		log.Warning("client has't been authenticated")
+		return
+	}
+
+	msg.timestamp = int32(time.Now().Unix())
+	m := &Message{cmd: MSG_TRANSMIT_GROUP, version:DEFAULT_VERSION, body: msg}
+
+	group := group_manager.FindGroup(msg.receiver)
+	if group == nil {
+		log.Warning("can't find group:", msg.receiver)
+		return
+	}
+	
+	members := group.Members()
+	for member := range members {
+		_, err := SaveMessage(client.appid, member, client.device_ID, m)
+		if err != nil {
+			continue
+		}
+	}
+	
+	client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
+	atomic.AddInt64(&server_summary.in_message_count, 1)
+	log.Infof("group message sender:%d group id:%d", msg.sender, msg.receiver)
+}
 
 func (client *IMClient) HandleMessage(msg *Message) {
 	switch msg.cmd {
@@ -262,6 +314,10 @@ func (client *IMClient) HandleMessage(msg *Message) {
 		client.HandleRTMessage(msg)
 	case MSG_UNREAD_COUNT:
 		client.HandleUnreadCount(msg.body.(*MessageUnreadCount))
+	case MSG_TRANSMIT_USER:
+		client.HandleTransmitUser(msg.body.(*IMMessage), msg.seq)
+	case MSG_TRANSMIT_GROUP:
+		client.HandleTransmitGroup(msg.body.(*IMMessage), msg.seq)
 	}
 }
 

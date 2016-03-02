@@ -67,6 +67,11 @@ const MSG_UNREAD_COUNT = 22
 //persistent
 const MSG_CUSTOMER_SERVICE = 23
 
+//透传消息
+const MSG_TRANSMIT_USER = 24
+const MSG_TRANSMIT_GROUP = 25
+const MSG_TRANSMIT_ROOM = 26
+
 const MSG_VOIP_CONTROL = 64
 
 //路由服务器消息
@@ -123,6 +128,9 @@ func init() {
 
 	vmessage_creators[MSG_GROUP_IM] = func() IVersionMessage { return new(IMMessage) }
 	vmessage_creators[MSG_IM] = func() IVersionMessage { return new(IMMessage) }
+	vmessage_creators[MSG_TRANSMIT_USER] = func() IVersionMessage { return new(IMMessage) }
+	vmessage_creators[MSG_TRANSMIT_GROUP] = func() IVersionMessage { return new(IMMessage) }
+	message_creators[MSG_TRANSMIT_ROOM] = func() IMessage { return &RoomMessage{new(RTMessage)} }
 
 	vmessage_creators[MSG_AUTH_STATUS] = func() IVersionMessage { return new(AuthenticationStatus) }
 
@@ -174,6 +182,9 @@ func init() {
 	message_descriptions[MSG_UNREAD_COUNT] = "MSG_UNREAD_COUNT"
 	message_descriptions[MSG_CUSTOMER_SERVICE] = "MSG_CUSTOMER_SERVICE"
 	message_descriptions[MSG_VOIP_CONTROL] = "MSG_VOIP_CONTROL"
+	message_descriptions[MSG_TRANSMIT_USER] = "MSG_TRANSMIT_USER"
+	message_descriptions[MSG_TRANSMIT_GROUP] = "MSG_TRANSMIT_GROUP"
+	message_descriptions[MSG_TRANSMIT_ROOM] = "MSG_TRANSMIT_ROOM"
 }
 
 type Command int
