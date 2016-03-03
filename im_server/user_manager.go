@@ -19,7 +19,10 @@
 
 package main
 
-import "sync"
+import (
+	"sync"
+	"fmt"
+)
 import "strconv"
 import "strings"
 import "time"
@@ -60,6 +63,68 @@ func (user_manager *UserManager) IsBlack(uid int64, bid int64) bool {
 	return false
 }
 
+func (user_manager *UserManager) PubFriendAdd(uid int64, fid int64) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	msg := fmt.Sprintf("%d,%d", uid, fid);
+	_, err := conn.Do("PUBLISH", "friend_add", msg)
+	
+	if err != nil {
+		log.Info("friend add pub error:", err)
+	}
+	
+	msg = fmt.Sprintf("%d,%d", fid, uid);
+	_, err = conn.Do("PUBLISH", "friend_add", msg)
+	
+	if err != nil {
+		log.Info("friend add pub error:", err)
+	}
+}
+
+func (user_manager *UserManager) PubFriendRemove(uid int64, fid int64) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	msg := fmt.Sprintf("%d,%d", uid, fid);
+	_, err := conn.Do("PUBLISH", "friend_remove", msg)
+	
+	if err != nil {
+		log.Info("friend remove pub error:", err)
+	}
+	
+	msg = fmt.Sprintf("%d,%d", fid, uid);
+	_, err = conn.Do("PUBLISH", "friend_remove", msg)
+	
+	if err != nil {
+		log.Info("friend remove pub error:", err)
+	}
+} 
+
+func (user_manager *UserManager) PubBlackAdd(uid int64, bid int64) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	msg := fmt.Sprintf("%d,%d", uid, bid);
+	_, err := conn.Do("PUBLISH", "black_add", msg)
+	
+	if err != nil {
+		log.Info("black add pub error:", err)
+	}
+}
+
+func (user_manager *UserManager) PubBlackRemove(uid int64, bid int64) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	msg := fmt.Sprintf("%d,%d", uid, bid);
+	_, err := conn.Do("PUBLISH", "black_remove", msg)
+	
+	if err != nil {
+		log.Info("black remove pub error:", err)
+	}
+} 
+
 func (user_manager *UserManager) HandleFriendAdd(data string) {
 	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
 	if err != nil {
@@ -92,7 +157,6 @@ func (user_manager *UserManager) HandleFriendAdd(data string) {
 	}
 	
 	user_manager.friends[uid].Add(fid)
-	FriendAdd(db, uid, fid)
 }
 
 func (user_manager *UserManager) HandleFriendRemove(data string) {
@@ -165,13 +229,6 @@ func (user_manager *UserManager) HandleBlackAdd(data string) {
 }
 
 func (user_manager *UserManager) HandleBlackRemove(data string) {
-	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
-	if err != nil {
-		log.Info("error:", err)
-		return
-	}
-	defer db.Close()
-	
 	arr := strings.Split(data, ",")
 	if len(arr) != 2 {
 		log.Info("message error")
@@ -194,8 +251,6 @@ func (user_manager *UserManager) HandleBlackRemove(data string) {
 	if _, ok := user_manager.blacks[uid]; ok {
 		user_manager.blacks[uid].Remove(bid)
 	}
-	
-	BlackRemove(db, uid, bid)
 }
 
 func (user_manager *UserManager) Reload() {

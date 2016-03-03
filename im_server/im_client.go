@@ -18,9 +18,14 @@
  */
 
 package main
-import "time"
+import (
+	"time"
+	"encoding/json"
+)
 import "sync/atomic"
 import log "github.com/golang/glog"
+import "database/sql"
+import _ "github.com/go-sql-driver/mysql"
 
 type IMClient struct {
 	*Connection
@@ -318,7 +323,289 @@ func (client *IMClient) HandleMessage(msg *Message) {
 		client.HandleTransmitUser(msg.body.(*IMMessage), msg.seq)
 	case MSG_TRANSMIT_GROUP:
 		client.HandleTransmitGroup(msg.body.(*IMMessage), msg.seq)
+	case MSG_CONTACT_INVITE:
+		client.HandleContactInvite(msg.body.(*ContactInvite))
+	case MSG_CONTACT_ACCEPT:
+		client.HandleContactAccept(msg.body.(*ContactAccept))
+	case MSG_CONTACT_REFUSE:
+		client.HandleContactRefuse(msg.body.(*ContactRefuse))
+	case MSG_CONTACT_DEL:
+		client.HandleContactDel(msg.body.(*ContactDel))
 	}
+}
+
+//申请加好友
+func (client *IMClient) HandleContactInvite(contactInvite *ContactInvite) {
+	if contactInvite.sender == contactInvite.receiver {
+		log.Infof("contact invite sender: %d, receiver: %d", contactInvite.sender, contactInvite.receiver)
+		
+		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{1, contactInvite.sender, contactInvite.receiver}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if user_manager.IsFriend(contactInvite.sender, contactInvite.receiver) {
+		
+		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{2, contactInvite.sender, contactInvite.receiver}}
+		client.wt <- msg
+		
+		return
+	}
+	
+	if user_manager.IsBlack(contactInvite.receiver, contactInvite.sender) {
+		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{3, contactInvite.sender, contactInvite.receiver}}
+		client.wt <- msg
+		
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	if !HasUserInfoById(db, contactInvite.receiver) {
+		
+		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{4, contactInvite.sender, contactInvite.receiver}}
+		client.wt <- msg
+		
+		return;
+	}
+	
+	//如果在黑名单中，自动解除黑名单
+	if !BlackRemove(db, contactInvite.sender, contactInvite.receiver) {
+		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{5, contactInvite.sender, contactInvite.receiver}}
+		client.wt <- msg
+		
+		return;
+	}
+	
+	user_manager.PubBlackRemove(contactInvite.sender, contactInvite.receiver)
+	
+	//构造一条透传发送好友申请
+	obj := make(map[string]interface{})
+	obj["cmd"] = CMD_CALLBACK_FRIEND_INVITE
+	obj["from"] = contactInvite.sender
+	obj["to"] = contactInvite.receiver
+	obj["msg"] = contactInvite.reason
+	
+	msg := &IMMessage{}
+	msg.sender = contactInvite.sender
+	msg.receiver = contactInvite.receiver
+	msg.timestamp = int32(time.Now().Unix())
+	content, err := json.Marshal(obj)
+	if err != nil {
+		return
+	}
+	msg.content = string(content)
+	m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+
+	SaveMessage(client.appid, msg.receiver, client.device_ID, m)
+	
+	respMsg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{0, contactInvite.sender, contactInvite.receiver}}
+	client.wt <- respMsg
+}
+
+func (client *IMClient) HandleContactAccept(contactAccept *ContactAccept) {
+	if contactAccept.sender == contactAccept.receiver {
+		log.Infof("contact accept sender: %d, receiver: %d", contactAccept.sender, contactAccept.receiver)
+		
+		msg := &Message{cmd: MSG_CONTACT_ACCEPT_RESP, version:DEFAULT_VERSION, body: &ContactAcceptResp{1, contactAccept.sender, contactAccept.receiver}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if user_manager.IsFriend(contactAccept.sender, contactAccept.receiver) {
+		
+		msg := &Message{cmd: MSG_CONTACT_ACCEPT_RESP, version:DEFAULT_VERSION, body: &ContactAcceptResp{2, contactAccept.sender, contactAccept.receiver}}
+		client.wt <- msg
+		
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	if !HasUserInfoById(db, contactAccept.receiver) {
+		
+		msg := &Message{cmd: MSG_CONTACT_ACCEPT_RESP, version:DEFAULT_VERSION, body: &ContactAcceptResp{4, contactAccept.sender, contactAccept.receiver}}
+		client.wt <- msg
+		
+		return;
+	}
+	
+	//如果在黑名单中，自动解除黑名单
+	if user_manager.IsBlack(contactAccept.sender, contactAccept.receiver) {
+		BlackRemove(db, contactAccept.sender, contactAccept.receiver)
+		user_manager.PubBlackRemove(contactAccept.sender, contactAccept.receiver)
+	}
+	
+	if user_manager.IsBlack(contactAccept.receiver, contactAccept.sender) {
+		BlackRemove(db, contactAccept.receiver, contactAccept.sender)
+		user_manager.PubBlackRemove(contactAccept.receiver, contactAccept.sender)
+	}
+	
+	//建立好友关系
+	if !FriendAdd(db, contactAccept.sender, contactAccept.receiver) {
+		return
+	}
+	
+	user_manager.PubFriendAdd(contactAccept.sender, contactAccept.receiver)
+	
+	//构造一条透传发送加好友申请通过通知
+	obj := make(map[string]interface{})
+	obj["cmd"] = CMD_CALLBACK_FRIEND_ACCEPT
+	obj["from"] = contactAccept.sender
+	obj["to"] = contactAccept.receiver
+	obj["msg"] = ""
+	
+	msg := &IMMessage{}
+	msg.sender = contactAccept.sender
+	msg.receiver = contactAccept.receiver
+	msg.timestamp = int32(time.Now().Unix())
+	content, err := json.Marshal(obj)
+	if err != nil {
+		return
+	}
+	msg.content = string(content)
+	m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+
+	SaveMessage(client.appid, msg.receiver, client.device_ID, m)
+	
+	//构造一条透传发送添加好友成功回调
+	obj = make(map[string]interface{})
+	obj["cmd"] = CMD_CALLBACK_FRIEND_ADD
+	obj["from"] = contactAccept.sender
+	obj["to"] = contactAccept.receiver
+	obj["msg"] = ""
+	
+	msg = &IMMessage{}
+	msg.sender = contactAccept.sender
+	msg.receiver = contactAccept.receiver
+	msg.timestamp = int32(time.Now().Unix())
+	content, err = json.Marshal(obj)
+	if err != nil {
+		return
+	}
+	msg.content = string(content)
+	m = &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+
+	SaveMessage(client.appid, msg.receiver, client.device_ID, m)
+	
+	respMsg := &Message{cmd: MSG_CONTACT_ACCEPT_RESP, version:DEFAULT_VERSION, body: &ContactAcceptResp{0, contactAccept.sender, contactAccept.receiver}}
+	client.wt <- respMsg
+}
+
+func (client *IMClient) HandleContactRefuse(contactRefuse *ContactRefuse) {
+	if contactRefuse.sender == contactRefuse.receiver {
+		log.Infof("contact refuse sender: %d, receiver: %d", contactRefuse.sender, contactRefuse.receiver)
+		
+		msg := &Message{cmd: MSG_CONTACT_REFUSE_RESP, version:DEFAULT_VERSION, body: &ContactRefuseResp{1, contactRefuse.sender, contactRefuse.receiver}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if user_manager.IsFriend(contactRefuse.sender, contactRefuse.receiver) {
+		
+		msg := &Message{cmd: MSG_CONTACT_REFUSE_RESP, version:DEFAULT_VERSION, body: &ContactRefuseResp{2, contactRefuse.sender, contactRefuse.receiver}}
+		client.wt <- msg
+		
+		return
+	}
+	
+	if user_manager.IsBlack(contactRefuse.receiver, contactRefuse.sender) {
+		msg := &Message{cmd: MSG_CONTACT_REFUSE_RESP, version:DEFAULT_VERSION, body: &ContactRefuseResp{3, contactRefuse.sender, contactRefuse.receiver}}
+		client.wt <- msg
+		
+		return
+	}
+	
+	//构造一条透传发送好友申请被拒绝通知
+	obj := make(map[string]interface{})
+	obj["cmd"] = CMD_CALLBACK_FRIEND_REFUSE
+	obj["from"] = contactRefuse.sender
+	obj["to"] = contactRefuse.receiver
+	
+	msg := &IMMessage{}
+	msg.sender = contactRefuse.sender
+	msg.receiver = contactRefuse.receiver
+	msg.timestamp = int32(time.Now().Unix())
+	content, err := json.Marshal(obj)
+	if err != nil {
+		return
+	}
+	msg.content = string(content)
+	m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+
+	SaveMessage(client.appid, msg.receiver, client.device_ID, m)
+	
+	respMsg := &Message{cmd: MSG_CONTACT_REFUSE_RESP, version:DEFAULT_VERSION, body: &ContactRefuseResp{0, contactRefuse.sender, contactRefuse.receiver}}
+	client.wt <- respMsg
+}
+
+func (client *IMClient) HandleContactDel(contactDel *ContactDel) {
+	if contactDel.sender == contactDel.receiver {
+		log.Infof("contact del sender: %d, receiver: %d", contactDel.sender, contactDel.receiver)
+		
+		msg := &Message{cmd: MSG_CONTACT_DEL_RESP, version:DEFAULT_VERSION, body: &ContactDelResp{1, contactDel.sender, contactDel.receiver}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if !user_manager.IsFriend(contactDel.sender, contactDel.receiver) {
+		
+		msg := &Message{cmd: MSG_CONTACT_DEL_RESP, version:DEFAULT_VERSION, body: &ContactDelResp{2, contactDel.sender, contactDel.receiver}}
+		client.wt <- msg
+		
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	//删除好友关系
+	if !FriendRemove(db, contactDel.sender, contactDel.receiver) {
+		return
+	}
+	
+	user_manager.PubFriendRemove(contactDel.sender, contactDel.receiver)
+	
+	//构造一条透传发送加好友删除通知
+	obj := make(map[string]interface{})
+	obj["cmd"] = CMD_CALLBACK_FRIEND_DEL
+	obj["from"] = contactDel.sender
+	obj["to"] = contactDel.receiver
+	obj["msg"] = ""
+	
+	msg := &IMMessage{}
+	msg.sender = contactDel.sender
+	msg.receiver = contactDel.receiver
+	msg.timestamp = int32(time.Now().Unix())
+	content, err := json.Marshal(obj)
+	if err != nil {
+		return
+	}
+	msg.content = string(content)
+	m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+
+	SaveMessage(client.appid, msg.receiver, client.device_ID, m)
+	
+	respMsg := &Message{cmd: MSG_CONTACT_DEL_RESP, version:DEFAULT_VERSION, body: &ContactDelResp{0, contactDel.sender, contactDel.receiver}}
+	client.wt <- respMsg
 }
 
 func (client *IMClient) DequeueGroupMessage(msgid int64, gid int64) {

@@ -92,6 +92,26 @@ func LoadUserInfoByAccessToken(token string) (int64, int64, string, error) {
 	return 1, id, uname, nil
 }
 
+func HasUserInfoById(db *sql.DB, id int64) bool {	
+	stmt, err := db.Prepare("SELECT id, username FROM user_app WHERE id=?")
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+
+	defer stmt.Close()
+	
+	var uid int64
+	var uname string
+	err = stmt.QueryRow(id).Scan(&uid, &uname)
+	if err != nil {
+		return false
+	}
+	
+	return true
+}
+
+
 func LoadAllFriends(db *sql.DB) (map[int64]common.IntSet, error) {
 	
 	//加载用户好友列表
@@ -162,36 +182,91 @@ func LoadAllBlacks(db *sql.DB) (map[int64]common.IntSet, error) {
 }
 
 func FriendAdd(db *sql.DB, uid int64, fid int64) bool {
+	var stmt1, stmt2 *sql.Stmt
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+
 	sql := fmt.Sprintf("INSERT INTO `user_friends_0%d` ( `user_id`, `friend_id`, `create_time`) select %d, %d, %d from dual where not exists(select * from user_friends_0%d where user_id=%d and friend_id=%d)",
 			uid % 10, uid, fid, time.Now().Unix(), uid % 10, uid, fid)
-	stmtIns, err := db.Prepare(sql)
+	stmt1, err = tx.Prepare(sql)
 	if err != nil {
 		log.Info("error:", err)
-		return false
+		goto ROLLBACK
 	}
-	defer stmtIns.Close()
-	_, err = stmtIns.Exec()
+	defer stmt1.Close()
+	_, err = stmt1.Exec()
 	if err != nil {
 		log.Info("error:", err)
-		return false
+		goto ROLLBACK
 	}
+
+	sql = fmt.Sprintf("INSERT INTO `user_friends_0%d` ( `user_id`, `friend_id`, `create_time`) select %d, %d, %d from dual where not exists(select * from user_friends_0%d where user_id=%d and friend_id=%d)",
+			fid % 10, fid, uid, time.Now().Unix(), fid % 10, fid, uid)
+	stmt2, err = tx.Prepare(sql)
+	if err != nil {
+		log.Info("error:", err)
+		goto ROLLBACK
+	}
+	defer stmt2.Close()
+	_, err = stmt2.Exec()
+	if err != nil {
+		log.Info("error:", err)
+		goto ROLLBACK
+	}
+
+	tx.Commit()
 	return true
+
+ROLLBACK:
+	tx.Rollback()
+	return false
 }
 
 func FriendRemove(db *sql.DB, uid int64, fid int64) bool {
+	var stmt1, stmt2 *sql.Stmt
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+
 	sql := fmt.Sprintf("delete from user_friends_0%d where user_id=? and friend_id=?", uid % 10);
-	stmtIns, err := db.Prepare(sql)
+	stmt1, err = tx.Prepare(sql)
 	if err != nil {
 		log.Info("error:", err)
-		return false
+		goto ROLLBACK
 	}
-	defer stmtIns.Close()
-	_, err = stmtIns.Exec(uid, fid)
+	defer stmt1.Close()
+	_, err = stmt1.Exec(uid, fid)
 	if err != nil {
 		log.Info("error:", err)
-		return false
+		goto ROLLBACK
 	}
+
+	sql = fmt.Sprintf("delete from user_friends_0%d where user_id=? and friend_id=?", uid % 10);
+	stmt2, err = tx.Prepare(sql)
+	if err != nil {
+		log.Info("error:", err)
+		goto ROLLBACK
+	}
+	defer stmt2.Close()
+	_, err = stmt2.Exec(fid, uid)
+	if err != nil {
+		log.Info("error:", err)
+		goto ROLLBACK
+	}
+
+	tx.Commit()
 	return true
+
+ROLLBACK:
+	tx.Rollback()
+	return false
 }
 
 func BlackAdd(db *sql.DB, uid int64, bid int64) bool {

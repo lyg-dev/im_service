@@ -88,12 +88,41 @@ const MSG_SUBSCRIBE_ROOM = 136
 const MSG_UNSUBSCRIBE_ROOM = 137
 const MSG_PUBLISH_ROOM = 138
 
+//好友
+const MSG_CONTACT_INVITE = 200
+const MSG_CONTACT_INVITE_RESP = 201
+
+const MSG_CONTACT_ACCEPT = 202
+const MSG_CONTACT_ACCEPT_RESP = 203
+
+const MSG_CONTACT_REFUSE = 204
+const MSG_CONTACT_REFUSE_RESP = 205
+
+const MSG_CONTACT_DEL = 206
+const MSG_CONTACT_DEL_RESP = 207
+
 //平台号
 const PLATFORM_IOS = 1
 const PLATFORM_ANDROID = 2
 const PLATFORM_WEB = 3
 
 const DEFAULT_VERSION = 1
+
+
+//好友操作回调
+/*
+{
+	cmd : 1,
+	from: 1,
+	to : 2,
+	msg : "" //自定义
+}
+*/
+const CMD_CALLBACK_FRIEND_INVITE = 1 //被请求添加好友回调  {from: 1, to:2, reason: "加好友吧"}
+const CMD_CALLBACK_FRIEND_DEL = 2 //被删除好友回调	{from: 1, to: 2}
+const CMD_CALLBACK_FRIEND_ACCEPT = 3 //好友请求被接受回调	{from: 2, to:1}
+const CMD_CALLBACK_FRIEND_REFUSE = 4 //好友请求被拒绝回调	{from:2, to:1}
+const CMD_CALLBACK_FRIEND_ADD = 5 //成功添加好友回调		{from:2, to: 1}
 
 var message_descriptions map[int]string = make(map[int]string)
 
@@ -146,6 +175,15 @@ func init() {
 	message_creators[MSG_SUBSCRIBE_ROOM] = func()IMessage{return new(AppRoomID)}
 	message_creators[MSG_UNSUBSCRIBE_ROOM] = func()IMessage{return new(AppRoomID)}
 	message_creators[MSG_PUBLISH_ROOM] = func()IMessage{return new(AppMessage)}
+	
+	message_creators[MSG_CONTACT_ACCEPT] = func() IMessage { return new(ContactAccept) }
+	message_creators[MSG_CONTACT_ACCEPT_RESP] = func() IMessage { return new(ContactAcceptResp) }
+	message_creators[MSG_CONTACT_INVITE] = func() IMessage { return new(ContactInvite) }
+	message_creators[MSG_CONTACT_INVITE_RESP] = func() IMessage { return new(ContactInviteResp) }
+	message_creators[MSG_CONTACT_REFUSE] = func() IMessage { return new(ContactRefuse) }
+	message_creators[MSG_CONTACT_REFUSE_RESP] = func() IMessage { return new(ContactRefuseResp) }
+	message_creators[MSG_CONTACT_DEL] = func() IMessage { return new(ContactDel) }
+	message_creators[MSG_CONTACT_DEL_RESP] = func() IMessage { return new(ContactDelResp) }
 
 	message_descriptions[MSG_PUBLISH_OFFLINE] = "MSG_PUBLISH_OFFLINE"
 	message_descriptions[MSG_SUBSCRIBE] = "MSG_SUBSCRIBE"
@@ -858,6 +896,225 @@ func (amsg *AppMessage) FromData(buff []byte) bool {
 	}
 	amsg.msg = msg
 
+	return true
+}
+
+//邀请好友
+type ContactInvite struct {
+	sender int64
+	receiver int64
+	reason string
+}
+
+func (contactInvite *ContactInvite) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactInvite.sender)
+	binary.Write(buffer, binary.BigEndian, contactInvite.receiver)
+	buffer.Write([]byte(contactInvite.reason))
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactInvite *ContactInvite) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactInvite.sender)
+	binary.Read(buffer, binary.BigEndian, &contactInvite.receiver)
+	contactInvite.reason = string(buff[16:])
+	
+	return true
+}
+
+type ContactInviteResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactInviteResp *ContactInviteResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactInviteResp.status)
+	binary.Write(buffer, binary.BigEndian, contactInviteResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactInviteResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactInviteResp *ContactInviteResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactInviteResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactInviteResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactInviteResp.receiver)
+	
+	return true
+}
+
+//接受好友请求
+type ContactAccept struct {
+	sender int64
+	receiver int64
+}
+
+func (contactAccept *ContactAccept) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactAccept.sender)
+	binary.Write(buffer, binary.BigEndian, contactAccept.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactAccept *ContactAccept) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactAccept.sender)
+	binary.Read(buffer, binary.BigEndian, &contactAccept.receiver)
+	
+	return true
+}
+
+type ContactAcceptResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactAcceptResp *ContactAcceptResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactAcceptResp.status)
+	binary.Write(buffer, binary.BigEndian, contactAcceptResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactAcceptResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactAcceptResp *ContactAcceptResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactAcceptResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactAcceptResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactAcceptResp.receiver)
+	
+	return true
+}
+
+//拒绝好友请求
+type ContactRefuse struct {
+	sender int64
+	receiver int64
+}
+
+func (contactRefuse *ContactRefuse) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactRefuse.sender)
+	binary.Write(buffer, binary.BigEndian, contactRefuse.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactRefuse *ContactRefuse) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactRefuse.sender)
+	binary.Read(buffer, binary.BigEndian, &contactRefuse.receiver)
+	
+	return true
+}
+
+type ContactRefuseResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactRefuseResp *ContactRefuseResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactRefuseResp.status)
+	binary.Write(buffer, binary.BigEndian, contactRefuseResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactRefuseResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactRefuseResp *ContactRefuseResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactRefuseResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactRefuseResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactRefuseResp.receiver)
+	
+	return true
+}
+
+//删除好友
+type ContactDel struct {
+	sender int64
+	receiver int64
+}
+
+func (contactDel *ContactDel) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactDel.sender)
+	binary.Write(buffer, binary.BigEndian, contactDel.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactDel *ContactDel) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactDel.sender)
+	binary.Read(buffer, binary.BigEndian, &contactDel.receiver)
+	
+	return true
+}
+
+type ContactDelResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactDelResp *ContactDelResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactDelResp.status)
+	binary.Write(buffer, binary.BigEndian, contactDelResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactDelResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactDelResp *ContactDelResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactDelResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactDelResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactDelResp.receiver)
+	
 	return true
 }
 
