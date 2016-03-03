@@ -1291,7 +1291,7 @@ func SendMessage(conn io.Writer, msg *Message) error {
 }
 
 func ReceiveMessage(conn io.Reader) *Message {
-	buff := make([]byte, 12)
+	buff := make([]byte, 16)
 	_, err := io.ReadFull(conn, buff)
 	if err != nil {
 		log.Info("sock read error:", err)
@@ -1299,6 +1299,7 @@ func ReceiveMessage(conn io.Reader) *Message {
 	}
 
 	length, seq, cmd, version := ReadHeader(buff)
+	log.Infof("ReceiveMessage: length=%d, seq=%d, cmd=%d, version=%d", length, seq, cmd, version)
 	if length < 0 || length >= 32*1024 {
 		log.Info("invalid len:", length)
 		return nil

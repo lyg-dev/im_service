@@ -749,20 +749,22 @@ func (id *AppGroupMemberID) FromData(buff []byte) bool {
 	return true
 }
 
-func WriteHeader(len int32, seq int32, cmd byte, version byte, buffer io.Writer) {
+func WriteHeader(len int32, seq int32, cmd int32, version byte, buffer io.Writer) {
 	binary.Write(buffer, binary.BigEndian, len)
 	binary.Write(buffer, binary.BigEndian, seq)
-	t := []byte{cmd, byte(version), 0, 0}
+	binary.Write(buffer, binary.BigEndian, cmd)
+	t := []byte{byte(version), 0, 0, 0}
 	buffer.Write(t)
 }
 
 func ReadHeader(buff []byte) (int, int, int, int) {
 	var length int32
 	var seq int32
+	var cmd int32
 	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &length)
 	binary.Read(buffer, binary.BigEndian, &seq)
-	cmd, _ := buffer.ReadByte()
+	binary.Read(buffer, binary.BigEndian, &cmd)
 	version, _ := buffer.ReadByte()
 	return int(length), int(seq), int(cmd), int(version)
 }
@@ -770,7 +772,7 @@ func ReadHeader(buff []byte) (int, int, int, int) {
 //写入message
 func WriteMessage(w *bytes.Buffer, msg *Message) {
 	body := msg.ToData()
-	WriteHeader(int32(len(body)), int32(msg.seq), byte(msg.cmd), byte(msg.version), w)
+	WriteHeader(int32(len(body)), int32(msg.seq), int32(msg.cmd), byte(msg.version), w)
 	w.Write(body)
 }
 
@@ -791,7 +793,7 @@ func SendMessage(conn io.Writer, msg *Message) error {
 }
 
 func ReceiveMessage(conn io.Reader) *Message {
-	buff := make([]byte, 12)
+	buff := make([]byte, 16)
 	_, err := io.ReadFull(conn, buff)
 	if err != nil {
 		log.Info("sock read error:", err)
@@ -799,6 +801,7 @@ func ReceiveMessage(conn io.Reader) *Message {
 	}
 
 	length, seq, cmd, version := ReadHeader(buff)
+	log.Infof("ReceiveMessage: length=%d, seq=%d, cmd=%d, version=%d", length, seq, cmd, version)
 	if length < 0 || length >= 32*1024 {
 		log.Info("invalid len:", length)
 		return nil
