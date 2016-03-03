@@ -332,7 +332,71 @@ func (client *IMClient) HandleMessage(msg *Message) {
 	case MSG_CONTACT_DEL:
 		client.HandleContactDel(msg.body.(*ContactDel))
 	case MSG_CONTACT_BLACK:
+		client.HandleContactBlack(msg.body.(*ContactBlack))
+	case MSG_CONTACT_UNBLACK:
+		client.HandleContactUnBlack(msg.body.(*ContactUnBlack))
 	}
+}
+
+func (client *IMClient) HandleContactBlack(contactBlack *ContactBlack) {
+	if contactBlack.sender == contactBlack.receiver {
+		log.Infof("contact black sender: %d, receiver: %d", contactBlack.sender, contactBlack.receiver)
+		
+		msg := &Message{cmd: MSG_CONTACT_BLACK_RESP, version:DEFAULT_VERSION, body: &ContactBlackResp{1, contactBlack.sender, contactBlack.receiver}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	//拉入黑名单
+	if !BlackAdd(db, contactBlack.sender, contactBlack.receiver) {
+		msg := &Message{cmd: MSG_CONTACT_BLACK_RESP, version:DEFAULT_VERSION, body: &ContactBlackResp{3, contactBlack.sender, contactBlack.receiver}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	user_manager.PubBlackAdd(contactBlack.sender, contactBlack.receiver)
+	msg := &Message{cmd: MSG_CONTACT_BLACK_RESP, version:DEFAULT_VERSION, body: &ContactBlackResp{0, contactBlack.sender, contactBlack.receiver}}
+	client.wt <- msg
+}
+
+func (client *IMClient) HandleContactUnBlack(contactUnBlack *ContactUnBlack) {
+	if contactUnBlack.sender == contactUnBlack.receiver {
+		log.Infof("contact unblack sender: %d, receiver: %d", contactUnBlack.sender, contactUnBlack.receiver)
+		
+		msg := &Message{cmd: MSG_CONTACT_UNBLACK_RESP, version:DEFAULT_VERSION, body: &ContactUnBlackResp{1, contactUnBlack.sender, contactUnBlack.receiver}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	//解除黑名单
+	if !BlackRemove(db, contactUnBlack.sender, contactUnBlack.receiver) {
+		msg := &Message{cmd: MSG_CONTACT_UNBLACK_RESP, version:DEFAULT_VERSION, body: &ContactUnBlackResp{2, contactUnBlack.sender, contactUnBlack.receiver}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	user_manager.PubBlackRemove(contactUnBlack.sender, contactUnBlack.receiver)
+	
+	msg := &Message{cmd: MSG_CONTACT_UNBLACK_RESP, version:DEFAULT_VERSION, body: &ContactUnBlackResp{0, contactUnBlack.sender, contactUnBlack.receiver}}
+	client.wt <- msg
 }
 
 //申请加好友

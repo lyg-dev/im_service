@@ -89,22 +89,22 @@ const MSG_UNSUBSCRIBE_ROOM = 137
 const MSG_PUBLISH_ROOM = 138
 
 //好友
-const MSG_CONTACT_INVITE = 200
-const MSG_CONTACT_INVITE_RESP = 201
+const MSG_CONTACT_INVITE = 10200
+const MSG_CONTACT_INVITE_RESP = 10201
 
-const MSG_CONTACT_ACCEPT = 202
-const MSG_CONTACT_ACCEPT_RESP = 203
+const MSG_CONTACT_ACCEPT = 10202
+const MSG_CONTACT_ACCEPT_RESP = 10203
 
-const MSG_CONTACT_REFUSE = 204
-const MSG_CONTACT_REFUSE_RESP = 205
+const MSG_CONTACT_REFUSE = 10204
+const MSG_CONTACT_REFUSE_RESP = 10205
 
-const MSG_CONTACT_DEL = 206
-const MSG_CONTACT_DEL_RESP = 207
+const MSG_CONTACT_DEL = 10206
+const MSG_CONTACT_DEL_RESP = 10207
 
-const MSG_CONTACT_BLACK = 208
-const MSG_CONTACT_BLACK_RESP = 209
-const MSG_CONTACT_UNBLACK = 210
-const MSG_CONTACT_UNBLACK_RESP = 211
+const MSG_CONTACT_BLACK = 10208
+const MSG_CONTACT_BLACK_RESP = 10209
+const MSG_CONTACT_UNBLACK = 10210
+const MSG_CONTACT_UNBLACK_RESP = 10211
 
 //平台号
 const PLATFORM_IOS = 1
@@ -294,7 +294,9 @@ func (message *Message) FromData(buff []byte) bool {
 	cmd := message.cmd
 	if creator, ok := message_creators[cmd]; ok {
 		c := creator()
+		log.Infof("cmd: %d, %+v", cmd, c)
 		r := c.FromData(buff)
+		log.Infof("cmd: %d, %+v", cmd, c)
 		message.body = c
 		return r
 	}

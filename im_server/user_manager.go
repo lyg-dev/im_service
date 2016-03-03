@@ -159,14 +159,7 @@ func (user_manager *UserManager) HandleFriendAdd(data string) {
 	user_manager.friends[uid].Add(fid)
 }
 
-func (user_manager *UserManager) HandleFriendRemove(data string) {
-	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
-	if err != nil {
-		log.Info("error:", err)
-		return
-	}
-	defer db.Close()
-	
+func (user_manager *UserManager) HandleFriendRemove(data string) {	
 	arr := strings.Split(data, ",")
 	if len(arr) != 2 {
 		log.Info("message error")
@@ -189,8 +182,6 @@ func (user_manager *UserManager) HandleFriendRemove(data string) {
 	if _, ok := user_manager.friends[uid]; ok {
 		user_manager.friends[uid].Remove(fid)
 	}
-	
-	FriendRemove(db, uid, fid)
 }
 
 func (user_manager *UserManager) HandleBlackAdd(data string) {
@@ -225,7 +216,6 @@ func (user_manager *UserManager) HandleBlackAdd(data string) {
 	}
 	
 	user_manager.blacks[uid].Add(bid)
-	BlackAdd(db, uid, bid)
 }
 
 func (user_manager *UserManager) HandleBlackRemove(data string) {
