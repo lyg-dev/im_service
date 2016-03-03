@@ -189,6 +189,10 @@ func init() {
 	message_creators[MSG_CONTACT_REFUSE_RESP] = func() IMessage { return new(ContactRefuseResp) }
 	message_creators[MSG_CONTACT_DEL] = func() IMessage { return new(ContactDel) }
 	message_creators[MSG_CONTACT_DEL_RESP] = func() IMessage { return new(ContactDelResp) }
+	message_creators[MSG_CONTACT_BLACK] = func() IMessage { return new(ContactBlack) }
+	message_creators[MSG_CONTACT_BLACK_RESP] = func() IMessage { return new(ContactBlackResp) }
+	message_creators[MSG_CONTACT_UNBLACK] = func() IMessage { return new(ContactUnBlack) }
+	message_creators[MSG_CONTACT_UNBLACK_RESP] = func() IMessage { return new(ContactUnBlackResp) }
 
 	message_descriptions[MSG_PUBLISH_OFFLINE] = "MSG_PUBLISH_OFFLINE"
 	message_descriptions[MSG_SUBSCRIBE] = "MSG_SUBSCRIBE"
@@ -228,6 +232,19 @@ func init() {
 	message_descriptions[MSG_TRANSMIT_USER] = "MSG_TRANSMIT_USER"
 	message_descriptions[MSG_TRANSMIT_GROUP] = "MSG_TRANSMIT_GROUP"
 	message_descriptions[MSG_TRANSMIT_ROOM] = "MSG_TRANSMIT_ROOM"
+	
+	message_descriptions[MSG_CONTACT_ACCEPT] = "MSG_CONTACT_ACCEPT"
+	message_descriptions[MSG_CONTACT_ACCEPT_RESP] = "MSG_CONTACT_ACCEPT_RESP"
+	message_descriptions[MSG_CONTACT_INVITE] = "MSG_CONTACT_INVITE"
+	message_descriptions[MSG_CONTACT_INVITE_RESP] = "MSG_CONTACT_INVITE_RESP"
+	message_descriptions[MSG_CONTACT_REFUSE] = "MSG_CONTACT_REFUSE"
+	message_descriptions[MSG_CONTACT_REFUSE_RESP] = "MSG_CONTACT_REFUSE_RESP"
+	message_descriptions[MSG_CONTACT_DEL] = "MSG_CONTACT_DEL"
+	message_descriptions[MSG_CONTACT_DEL_RESP] = "MSG_CONTACT_DEL_RESP"
+	message_descriptions[MSG_CONTACT_BLACK] = "MSG_CONTACT_BLACK"
+	message_descriptions[MSG_CONTACT_BLACK_RESP] = "MSG_CONTACT_BLACK_RESP"
+	message_descriptions[MSG_CONTACT_UNBLACK] = "MSG_CONTACT_UNBLACK"
+	message_descriptions[MSG_CONTACT_UNBLACK_RESP] = "MSG_CONTACT_UNBLACK_RESP"
 }
 
 type Command int
@@ -1172,6 +1189,59 @@ func (contactBlackResp *ContactBlackResp) FromData(buff []byte) bool {
 	binary.Read(buffer, binary.BigEndian, &contactBlackResp.status)
 	binary.Read(buffer, binary.BigEndian, &contactBlackResp.sender)
 	binary.Read(buffer, binary.BigEndian, &contactBlackResp.receiver)
+	
+	return true
+}
+
+type ContactUnBlack struct {
+	sender int64
+	receiver int64
+}
+
+func (contactUnBlack *ContactUnBlack) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactUnBlack.sender)
+	binary.Write(buffer, binary.BigEndian, contactUnBlack.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactUnBlack *ContactUnBlack) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlack.sender)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlack.receiver)
+	
+	return true
+}
+
+type ContactUnBlackResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactUnBlackResp *ContactUnBlackResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactUnBlackResp.status)
+	binary.Write(buffer, binary.BigEndian, contactUnBlackResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactUnBlackResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactUnBlackResp *ContactUnBlackResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.receiver)
 	
 	return true
 }
