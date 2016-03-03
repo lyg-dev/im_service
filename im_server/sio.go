@@ -95,6 +95,7 @@ func ReadEngineIOMessage(conn engineio.Conn) *Message {
 	}
 	b, err := ioutil.ReadAll(r)
 	if err != nil {
+		log.Info("ReadEngineIOMessage error:", err)
 		return nil
 	}
 	r.Close()

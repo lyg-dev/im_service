@@ -331,6 +331,7 @@ func (client *IMClient) HandleMessage(msg *Message) {
 		client.HandleContactRefuse(msg.body.(*ContactRefuse))
 	case MSG_CONTACT_DEL:
 		client.HandleContactDel(msg.body.(*ContactDel))
+	case MSG_CONTACT_BLACK:
 	}
 }
 

@@ -101,6 +101,11 @@ const MSG_CONTACT_REFUSE_RESP = 205
 const MSG_CONTACT_DEL = 206
 const MSG_CONTACT_DEL_RESP = 207
 
+const MSG_CONTACT_BLACK = 208
+const MSG_CONTACT_BLACK_RESP = 209
+const MSG_CONTACT_UNBLACK = 210
+const MSG_CONTACT_UNBLACK_RESP = 211
+
 //平台号
 const PLATFORM_IOS = 1
 const PLATFORM_ANDROID = 2
@@ -1114,6 +1119,59 @@ func (contactDelResp *ContactDelResp) FromData(buff []byte) bool {
 	binary.Read(buffer, binary.BigEndian, &contactDelResp.status)
 	binary.Read(buffer, binary.BigEndian, &contactDelResp.sender)
 	binary.Read(buffer, binary.BigEndian, &contactDelResp.receiver)
+	
+	return true
+}
+
+type ContactBlack struct {
+	sender int64
+	receiver int64
+}
+
+func (contactBlack *ContactBlack) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactBlack.sender)
+	binary.Write(buffer, binary.BigEndian, contactBlack.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactBlack *ContactBlack) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactBlack.sender)
+	binary.Read(buffer, binary.BigEndian, &contactBlack.receiver)
+	
+	return true
+}
+
+type ContactBlackResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactBlackResp *ContactBlackResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactBlackResp.status)
+	binary.Write(buffer, binary.BigEndian, contactBlackResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactBlackResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactBlackResp *ContactBlackResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactBlackResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactBlackResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactBlackResp.receiver)
 	
 	return true
 }
