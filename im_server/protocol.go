@@ -1248,27 +1248,29 @@ func (contactUnBlackResp *ContactUnBlackResp) FromData(buff []byte) bool {
 	return true
 }
 
-func WriteHeader(len int32, seq int32, cmd byte, version byte, buffer io.Writer) {
+func WriteHeader(len int32, seq int32, cmd int32, version byte, buffer io.Writer) {
 	binary.Write(buffer, binary.BigEndian, len)
 	binary.Write(buffer, binary.BigEndian, seq)
-	t := []byte{cmd, byte(version), 0, 0}
+	binary.Write(buffer, binary.BigEndian, cmd)
+	t := []byte{byte(version), 0, 0, 0}
 	buffer.Write(t)
 }
 
 func ReadHeader(buff []byte) (int, int, int, int) {
 	var length int32
 	var seq int32
+	var cmd int32
 	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &length)
 	binary.Read(buffer, binary.BigEndian, &seq)
-	cmd, _ := buffer.ReadByte()
+	binary.Read(buffer, binary.BigEndian, &cmd)
 	version, _ := buffer.ReadByte()
 	return int(length), int(seq), int(cmd), int(version)
 }
 
 func WriteMessage(w *bytes.Buffer, msg *Message) {
 	body := msg.ToData()
-	WriteHeader(int32(len(body)), int32(msg.seq), byte(msg.cmd), byte(msg.version), w)
+	WriteHeader(int32(len(body)), int32(msg.seq), int32(msg.cmd), byte(msg.version), w)
 	w.Write(body)
 }
 
