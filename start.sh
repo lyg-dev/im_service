@@ -1,11 +1,11 @@
 #!/bin/bash
 
 #杀死脚本
-ps aux|grep im_server|awk '{print $2}'|xargs kill -9
+ps aux|grep im_server|grep -v grep|awk '{print $2}'|xargs kill -9
 
-ps aux|grep storage_server|awk '{print $2}'|xargs kill -9
+ps aux|grep storage_server|grep -v grep|awk '{print $2}'|xargs kill -9
 
-ps aux|grep route_server|awk '{print $2}'|xargs kill -9
+ps aux|grep route_server|grep -v grep|awk '{print $2}'|xargs kill -9
 
 cd "${GOPATH}/src/im_service/im_server"
 
