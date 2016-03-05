@@ -1472,13 +1472,11 @@ func (simpleResp *SimpleResp) FromData(buff []byte) bool {
 }
 
 type GroupQuit struct {
-	sender int64
 	gid int64
 }
 
 func (groupQuit *GroupQuit) ToData() []byte {
 	buffer := new(bytes.Buffer)
-	binary.Write(buffer, binary.BigEndian, groupQuit.sender)
 	binary.Write(buffer, binary.BigEndian, groupQuit.gid)
 	
 	buf := buffer.Bytes()
@@ -1486,25 +1484,22 @@ func (groupQuit *GroupQuit) ToData() []byte {
 }
 
 func (groupQuit *GroupQuit) FromData(buff []byte) bool {
-	if len(buff) < 16 {
+	if len(buff) < 8 {
 		return false
 	}
 	
 	buffer := bytes.NewBuffer(buff)
-	binary.Read(buffer, binary.BigEndian, &groupQuit.sender)
 	binary.Read(buffer, binary.BigEndian, &groupQuit.gid)
 	
 	return true
 }
 
 type GroupDel struct {
-	sender int64
 	gid int64
 }
 
 func (groupDel *GroupDel) ToData() []byte {
 	buffer := new(bytes.Buffer)
-	binary.Write(buffer, binary.BigEndian, groupDel.sender)
 	binary.Write(buffer, binary.BigEndian, groupDel.gid)
 	
 	buf := buffer.Bytes()
@@ -1512,26 +1507,23 @@ func (groupDel *GroupDel) ToData() []byte {
 }
 
 func (groupDel *GroupDel) FromData(buff []byte) bool {
-	if len(buff) < 16 {
+	if len(buff) < 8 {
 		return false
 	}
 	
 	buffer := bytes.NewBuffer(buff)
-	binary.Read(buffer, binary.BigEndian, &groupDel.sender)
 	binary.Read(buffer, binary.BigEndian, &groupDel.gid)
 	
 	return true
 }
 
 type GroupRemove struct {
-	sender int64
 	gid int64
 	uid int64
 }
 
 func (groupRemove *GroupRemove) ToData() []byte {
 	buffer := new(bytes.Buffer)
-	binary.Write(buffer, binary.BigEndian, groupRemove.sender)
 	binary.Write(buffer, binary.BigEndian, groupRemove.gid)
 	binary.Write(buffer, binary.BigEndian, groupRemove.uid)
 	
@@ -1540,12 +1532,11 @@ func (groupRemove *GroupRemove) ToData() []byte {
 }
 
 func (groupRemove *GroupRemove) FromData(buff []byte) bool {
-	if len(buff) < 24 {
+	if len(buff) < 16 {
 		return false
 	}
 	
 	buffer := bytes.NewBuffer(buff)
-	binary.Read(buffer, binary.BigEndian, &groupRemove.sender)
 	binary.Read(buffer, binary.BigEndian, &groupRemove.gid)
 	binary.Read(buffer, binary.BigEndian, &groupRemove.uid)
 	

@@ -149,6 +149,30 @@ func (user_manager *UserManager) PubGroupMemberAdd(gid int64, uid int64) {
 	}
 }
 
+func (user_manager *UserManager) PubGroupMemberRemove(gid int64, uid int64) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	msg := fmt.Sprintf("%d,%d", gid, uid);
+	_, err := conn.Do("PUBLISH", "group_member_remove", msg)
+	
+	if err != nil {
+		log.Info("group member remove pub error:", err)
+	}
+}
+
+func (user_manager *UserManager) PubGroupDisband(gid int64) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	msg := fmt.Sprintf("%d", gid);
+	_, err := conn.Do("PUBLISH", "group_disband", msg)
+	
+	if err != nil {
+		log.Info("group disband pub error:", err)
+	}
+}
+
 func (user_manager *UserManager) HandleFriendAdd(data string) {
 	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
 	if err != nil {

@@ -352,15 +352,120 @@ func (client *IMClient) HandleMessage(msg *Message) {
 }
 
 func (client *IMClient) handlerGroupDel(groupDel *GroupDel) {
+	group := group_manager.FindGroup(groupDel.gid)
 	
+	if group == nil {
+		msg := &Message{cmd: MSG_GROUP_DEL_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if group.owner != client.uid {
+		msg := &Message{cmd: MSG_GROUP_DEL_RESP, version:DEFAULT_VERSION, body: &SimpleResp{2}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	user_manager.PubGroupDisband(groupDel.gid)
+	
+	for member, _ := range group.members {
+		RemoveGroupMember(db, groupDel.gid, member)
+	}
+	
+	msg := &Message{cmd: MSG_GROUP_DEL_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
+	client.wt <- msg
 }
 
 func (client *IMClient) handlerGroupQuit(groupQuit *GroupQuit) {
+	group := group_manager.FindGroup(groupQuit.gid)
 	
+	if group == nil {
+		msg := &Message{cmd: MSG_GROUP_QUIT_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if group.owner == client.uid {
+		msg := &Message{cmd: MSG_GROUP_QUIT_RESP, version:DEFAULT_VERSION, body: &SimpleResp{2}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	if !RemoveGroupMember(db, group.gid, client.uid) {
+		msg := &Message{cmd: MSG_GROUP_QUIT_RESP, version:DEFAULT_VERSION, body: &SimpleResp{3}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	group.RemoveMember(client.uid)
+	user_manager.PubGroupMemberRemove(group.gid, client.uid)
+	
+	msg := &Message{cmd: MSG_GROUP_QUIT_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
+	client.wt <- msg
 }
 
 func (client *IMClient) handlerGroupRemove(groupRemove *GroupRemove) {
+	group := group_manager.FindGroup(groupRemove.gid)
 	
+	if group == nil {
+		msg := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if client.uid != group.owner {
+		msg := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{2}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if group.owner == groupRemove.uid {
+		msg := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{3}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	if !RemoveGroupMember(db, group.gid, groupRemove.uid) {
+		msg := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{4}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	group.RemoveMember(groupRemove.uid)
+	user_manager.PubGroupMemberRemove(group.gid, groupRemove.uid)
+	
+	msg := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
+	client.wt <- msg
 }
 
 func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin) {
@@ -386,6 +491,13 @@ func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin)
 			
 		return
 	}
+	
+	if (len(group.members)+len(groupInviteJoin.members)) > 500 {
+		msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{4}}
+		client.wt <- msg
+			
+		return
+	} 
 	
 	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
 	if err != nil {
@@ -435,6 +547,13 @@ func (client *IMClient) handlerGroupSelfJoin(groupSelfJoin *GroupSelfJoin) {
 		return
 	}
 	
+	if len(group.members) >= 500 {
+		msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{4}}
+		client.wt <- msg
+			
+		return
+	}
+	
 	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
 	if err != nil {
 		log.Info("error:", err)
@@ -444,7 +563,7 @@ func (client *IMClient) handlerGroupSelfJoin(groupSelfJoin *GroupSelfJoin) {
 	
 	if !group.IsMember(client.uid) {
 		if !AddGroupMember(db, group.gid, client.uid, 0) {
-			msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{4}}
+			msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{5}}
 			client.wt <- msg
 				
 			return
@@ -459,6 +578,13 @@ func (client *IMClient) handlerGroupSelfJoin(groupSelfJoin *GroupSelfJoin) {
 }
 
 func (client *IMClient) handlerGroupCreate(groupCreate *GroupCreate) {
+	if len(groupCreate.members) + 1 > 500 {
+		msg := &Message{cmd: MSG_GROUP_CREATE_RESP, version:DEFAULT_VERSION, body: &GroupCreateResp{1, 0}}
+		client.wt <- msg
+			
+		return
+	}
+	
 	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
 	if err != nil {
 		log.Info("error:", err)
@@ -477,7 +603,7 @@ func (client *IMClient) handlerGroupCreate(groupCreate *GroupCreate) {
 	gid := GenerateGroupUUID(client.uid)
 	
 	if !CreateGroup(db, gid, groupCreate.title, groupCreate.desc, groupCreate.is_private, groupCreate.is_allow_invite, client.uid, gouhao) {
-		msg := &Message{cmd: MSG_GROUP_CREATE_RESP, version:DEFAULT_VERSION, body: &GroupCreateResp{1, 0}}
+		msg := &Message{cmd: MSG_GROUP_CREATE_RESP, version:DEFAULT_VERSION, body: &GroupCreateResp{2, 0}}
 		client.wt <- msg
 			
 		return
@@ -503,6 +629,7 @@ func (client *IMClient) handlerGroupCreate(groupCreate *GroupCreate) {
 		if member == client.uid {
 			continue
 		}
+		
 		AddGroupMember(db, gid, member, 0)
 	}
 	
