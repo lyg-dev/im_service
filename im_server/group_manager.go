@@ -221,11 +221,23 @@ func (group_manager *GroupManager) Reload() {
 }
 
 func (group_manager *GroupManager) RunOnce() bool {
-	c, err := redis.Dial("tcp", config.redis_address)
-	if err != nil {
-		log.Info("dial redis error:", err)
-		return false
+	var c redis.Conn
+	var err error
+	if config.redis_password != "" {
+		option := redis.DialPassword(config.redis_password)
+		c, err = redis.Dial("tcp", config.redis_address, option)
+		if err != nil {
+			log.Info("dial redis error:", err)
+			return false
+		}
+	} else {
+		c, err = redis.Dial("tcp", config.redis_address)
+		if err != nil {
+			log.Info("dial redis error:", err)
+			return false
+		}
 	}
+	
 	psc := redis.PubSubConn{c}
 	psc.Subscribe("group_create", "group_disband", "group_member_add", "group_member_remove")
 	group_manager.Reload()

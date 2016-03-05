@@ -30,6 +30,7 @@ type Config struct {
 	mysqldb_appdatasource  string
 
 	redis_address       string
+	redis_password		string
 	http_listen_address string
 	socket_io_address   string
 
@@ -42,6 +43,7 @@ type StorageConfig struct {
 	storage_root        string
 	mysqldb_datasource  string
 	redis_address       string
+	redis_password		string
 	sync_listen         string
 	master_address      string
 }
@@ -49,6 +51,7 @@ type StorageConfig struct {
 type RouteConfig struct {
 	listen string
 	redis_address       string
+	redis_password		string
 }
 
 func get_int(app_cfg map[string]string, key string) int {
@@ -90,6 +93,7 @@ func read_cfg(cfg_path string) *Config {
 	config.port = get_int(app_cfg, "port")
 	config.http_listen_address = get_string(app_cfg, "http_listen_address")
 	config.redis_address = get_string(app_cfg, "redis_address")
+	config.redis_password = get_string(app_cfg, "redis_password")
 	config.mysqldb_datasource = get_string(app_cfg, "mysqldb_source")
 	config.mysqldb_appdatasource = get_string(app_cfg, "mysqldb_appsource")
 	config.socket_io_address = get_string(app_cfg, "socket_io_address")
@@ -122,6 +126,7 @@ func read_storage_cfg(cfg_path string) *StorageConfig {
 	config.listen = get_string(app_cfg, "listen")
 	config.storage_root = get_string(app_cfg, "storage_root")
 	config.redis_address = get_string(app_cfg, "redis_address")
+	config.redis_password = get_string(app_cfg, "redis_password")
 	config.mysqldb_datasource = get_string(app_cfg, "mysqldb_source")
 	config.sync_listen = get_string(app_cfg, "sync_listen")
 	config.master_address = get_opt_string(app_cfg, "master_address")
@@ -138,5 +143,6 @@ func read_route_cfg(cfg_path string) *RouteConfig {
 
 	config.listen = get_string(app_cfg, "listen")
 	config.redis_address = get_string(app_cfg, "redis_address")
+	config.redis_password = get_string(app_cfg, "redis_password")
 	return config
 }

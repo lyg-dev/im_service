@@ -445,7 +445,7 @@ func main() {
 	config = read_route_cfg(flag.Args()[0])
 	log.Infof("listen:%s redis:%s\n", config.listen, config.redis_address)
 
-	redis_pool = NewRedisPool(config.redis_address, "")
+	redis_pool = NewRedisPool(config.redis_address, config.redis_password)
 
 	ListenClient()
 }

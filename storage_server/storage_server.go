@@ -797,7 +797,7 @@ func main() {
 	log.Infof("listen:%s storage root:%s sync listen:%s master address:%s\n",
 		config.listen, config.storage_root, config.sync_listen, config.master_address)
 	//redis连接池
-	redis_pool = NewRedisPool(config.redis_address, "")
+	redis_pool = NewRedisPool(config.redis_address, config.redis_password)
 	//新建/读取消息
 	storage = NewStorage(config.storage_root)
 

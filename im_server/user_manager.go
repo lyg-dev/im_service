@@ -318,11 +318,23 @@ func (user_manager *UserManager) Reload() {
 }
 
 func (user_manager *UserManager) RunOnce() bool {
-	c, err := redis.Dial("tcp", config.redis_address)
-	if err != nil {
-		log.Info("dial redis error:", err)
-		return false
+	var c redis.Conn
+	var err error
+	if config.redis_password != "" {
+		option := redis.DialPassword(config.redis_password)
+		c, err = redis.Dial("tcp", config.redis_address, option)
+		if err != nil {
+			log.Info("dial redis error:", err)
+			return false
+		}
+	} else {
+		c, err = redis.Dial("tcp", config.redis_address)
+		if err != nil {
+			log.Info("dial redis error:", err)
+			return false
+		}
 	}
+	
 	psc := redis.PubSubConn{c}
 	psc.Subscribe("friend_add", "friend_remove", "black_add", "black_remove")
 	group_manager.Reload()
