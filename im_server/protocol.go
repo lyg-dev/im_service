@@ -106,6 +106,20 @@ const MSG_CONTACT_BLACK_RESP = 10209
 const MSG_CONTACT_UNBLACK = 10210
 const MSG_CONTACT_UNBLACK_RESP = 10211
 
+//群
+const MSG_GROUP_CREATE = 10300  //创建
+const MSG_GROUP_CREATE_RESP = 10301
+const MSG_GROUP_SELF_JOIN = 10302 //加入
+const MSG_GROUP_SELF_JOIN_RESP = 10303
+const MSG_GROUP_INVITE_JOIN = 10304 //群成员拉人入群
+const MSG_GROUP_INVITE_JOIN_RESP =10305
+const MSG_GROUP_REMOVE = 10306 //移除
+const MSG_GROUP_REMOVE_RESP = 10307
+const MSG_GROUP_QUIT = 10308 //退出，群主不可以退出
+const MSG_GROUP_QUIT_RESP = 10309
+const MSG_GROUP_DEL = 10310 //解散
+const MSG_GROUP_DEL_RESP = 10311
+
 //平台号
 const PLATFORM_IOS = 1
 const PLATFORM_ANDROID = 2
@@ -128,6 +142,11 @@ const CMD_CALLBACK_FRIEND_DEL = 2 //被删除好友回调	{from: 1, to: 2}
 const CMD_CALLBACK_FRIEND_ACCEPT = 3 //好友请求被接受回调	{from: 2, to:1}
 const CMD_CALLBACK_FRIEND_REFUSE = 4 //好友请求被拒绝回调	{from:2, to:1}
 const CMD_CALLBACK_FRIEND_ADD = 5 //成功添加好友回调		{from:2, to: 1}
+
+//群操作回调
+const CMD_CALLBACK_GROUP_REMOVE = 101 //被移除群
+const CMD_CALLBACK_GROUP_JOIN = 102 //被加入群
+const CMD_CALLBACK_GROUP_DEL = 103 //群被解散
 
 var message_descriptions map[int]string = make(map[int]string)
 
@@ -193,6 +212,19 @@ func init() {
 	message_creators[MSG_CONTACT_BLACK_RESP] = func() IMessage { return new(ContactBlackResp) }
 	message_creators[MSG_CONTACT_UNBLACK] = func() IMessage { return new(ContactUnBlack) }
 	message_creators[MSG_CONTACT_UNBLACK_RESP] = func() IMessage { return new(ContactUnBlackResp) }
+	
+	message_creators[MSG_GROUP_CREATE] = func() IMessage { return new(GroupCreate) }
+	message_creators[MSG_GROUP_CREATE_RESP] = func() IMessage { return new(GroupCreateResp) }
+	message_creators[MSG_GROUP_SELF_JOIN] = func() IMessage { return new(GroupSelfJoin) }
+	message_creators[MSG_GROUP_SELF_JOIN_RESP] = func() IMessage { return new(SimpleResp) }
+	message_creators[MSG_GROUP_INVITE_JOIN] = func() IMessage { return new(GroupInviteJoin) }
+	message_creators[MSG_GROUP_INVITE_JOIN_RESP] = func() IMessage { return new(SimpleResp) }
+	message_creators[MSG_GROUP_REMOVE] = func() IMessage { return new(GroupRemove) }
+	message_creators[MSG_GROUP_REMOVE_RESP] = func() IMessage { return new(SimpleResp) }
+	message_creators[MSG_GROUP_QUIT] = func() IMessage { return new(GroupQuit) }
+	message_creators[MSG_GROUP_QUIT_RESP] = func() IMessage { return new(SimpleResp) }
+	message_creators[MSG_GROUP_DEL] = func() IMessage { return new(GroupDel) }
+	message_creators[MSG_GROUP_DEL_RESP] = func() IMessage { return new(SimpleResp) }
 
 	message_descriptions[MSG_PUBLISH_OFFLINE] = "MSG_PUBLISH_OFFLINE"
 	message_descriptions[MSG_SUBSCRIBE] = "MSG_SUBSCRIBE"
@@ -245,6 +277,19 @@ func init() {
 	message_descriptions[MSG_CONTACT_BLACK_RESP] = "MSG_CONTACT_BLACK_RESP"
 	message_descriptions[MSG_CONTACT_UNBLACK] = "MSG_CONTACT_UNBLACK"
 	message_descriptions[MSG_CONTACT_UNBLACK_RESP] = "MSG_CONTACT_UNBLACK_RESP"
+	
+	message_descriptions[MSG_GROUP_CREATE] = "MSG_GROUP_CREATE"
+	message_descriptions[MSG_GROUP_CREATE_RESP] = "MSG_GROUP_CREATE_RESP"
+	message_descriptions[MSG_GROUP_SELF_JOIN] = "MSG_GROUP_SELF_JOIN"
+	message_descriptions[MSG_GROUP_SELF_JOIN_RESP] = "MSG_GROUP_SELF_JOIN_RESP"
+	message_descriptions[MSG_GROUP_INVITE_JOIN] = "MSG_GROUP_INVITE_JOIN"
+	message_descriptions[MSG_GROUP_INVITE_JOIN_RESP] = "MSG_GROUP_INVITE_JOIN_RESP"
+	message_descriptions[MSG_GROUP_REMOVE] = "MSG_GROUP_REMOVE"
+	message_descriptions[MSG_GROUP_REMOVE_RESP] = "MSG_GROUP_REMOVE_RESP"
+	message_descriptions[MSG_GROUP_QUIT] = "MSG_GROUP_QUIT"
+	message_descriptions[MSG_GROUP_QUIT_RESP] = "MSG_GROUP_QUIT_RESP"
+	message_descriptions[MSG_GROUP_DEL] = "MSG_GROUP_DEL"
+	message_descriptions[MSG_GROUP_DEL_RESP] = "MSG_GROUP_DEL_RESP"
 }
 
 type Command int
@@ -1244,6 +1289,265 @@ func (contactUnBlackResp *ContactUnBlackResp) FromData(buff []byte) bool {
 	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.status)
 	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.sender)
 	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.receiver)
+	
+	return true
+}
+
+type GroupCreate struct {
+	is_private int32
+	is_allow_invite int32
+	members []int64
+	title string
+	desc string
+}
+
+func (groupCreate *GroupCreate) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupCreate.is_private)
+	binary.Write(buffer, binary.BigEndian, groupCreate.is_allow_invite)
+	
+	var num int32
+	num = int32(len(groupCreate.members))
+	binary.Write(buffer, binary.BigEndian, num)
+	for _, member := range groupCreate.members {
+		binary.Write(buffer, binary.BigEndian, member)
+	}
+	
+	var t_len int32
+	t_len = int32(len(groupCreate.title))
+	binary.Write(buffer, binary.BigEndian, t_len)
+	var d_len int32
+	d_len = int32(len(groupCreate.desc))
+	binary.Write(buffer, binary.BigEndian, d_len)
+	buffer.Write([]byte(groupCreate.title))
+	buffer.Write([]byte(groupCreate.desc))
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupCreate *GroupCreate) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupCreate.is_private)
+	binary.Read(buffer, binary.BigEndian, &groupCreate.is_allow_invite)
+	
+	var num int32
+	binary.Read(buffer, binary.BigEndian, &num)
+	groupCreate.members = make([]int64, 0, 4)
+	var i int32
+	for i=0; i<num; i++ {
+		var member int64
+		binary.Read(buffer, binary.BigEndian, &member)
+		groupCreate.members = append(groupCreate.members, member)
+	}
+	
+	var t_len int32
+	binary.Read(buffer, binary.BigEndian, &t_len)
+	var d_len int32
+	binary.Read(buffer, binary.BigEndian, &d_len)
+	groupCreate.title = string(buff[28:(28+t_len)])
+	groupCreate.desc = string(buff[(28+t_len):])
+	
+	return true
+}
+
+type GroupCreateResp struct {
+	status int32
+	gid int64
+}
+
+func (groupCreateResp *GroupCreateResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupCreateResp.status)
+	binary.Write(buffer, binary.BigEndian, groupCreateResp.gid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupCreateResp *GroupCreateResp) FromData(buff []byte) bool {
+	if len(buff) < 12 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupCreateResp.status)
+	binary.Read(buffer, binary.BigEndian, &groupCreateResp.gid)
+	
+	return true
+}
+
+type GroupSelfJoin struct {
+	gid int64
+}
+
+func (groupSelfJoin *GroupSelfJoin) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupSelfJoin.gid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupSelfJoin *GroupSelfJoin) FromData(buff []byte) bool {
+	if len(buff) < 8 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupSelfJoin.gid)
+	
+	return true
+}
+
+type GroupInviteJoin struct {
+	gid int64
+	members []int64
+}
+
+func (groupInviteJoin *GroupInviteJoin) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupInviteJoin.gid)
+	
+	var num int32
+	num = int32(len(groupInviteJoin.members))
+	binary.Write(buffer, binary.BigEndian, num)
+	for _, member := range groupInviteJoin.members {
+		binary.Write(buffer, binary.BigEndian, member)
+	}
+	
+	buf := buffer.Bytes()
+	
+	return buf
+}
+
+func (groupInviteJoin *GroupInviteJoin) FromData(buff []byte) bool {
+	if len(buff) < 12 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupInviteJoin.gid)
+	
+	var num int32
+	binary.Read(buffer, binary.BigEndian, &num)
+	groupInviteJoin.members = make([]int64, 0, 4)
+	var i int32
+	for i=0; i<num; i++ {
+		var member int64
+		binary.Read(buffer, binary.BigEndian, &member)
+		groupInviteJoin.members = append(groupInviteJoin.members, member)
+	}
+	
+	return true
+}
+
+type SimpleResp struct {
+	status int32
+}
+
+func (simpleResp *SimpleResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	
+	binary.Write(buffer, binary.BigEndian, simpleResp.status)
+	
+	buf := buffer.Bytes()
+	
+	return buf
+}
+
+func (simpleResp *SimpleResp) FromData(buff []byte) bool {
+	if len(buff) < 4 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &simpleResp.status)
+	
+	return true
+}
+
+type GroupQuit struct {
+	sender int64
+	gid int64
+}
+
+func (groupQuit *GroupQuit) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupQuit.sender)
+	binary.Write(buffer, binary.BigEndian, groupQuit.gid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupQuit *GroupQuit) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupQuit.sender)
+	binary.Read(buffer, binary.BigEndian, &groupQuit.gid)
+	
+	return true
+}
+
+type GroupDel struct {
+	sender int64
+	gid int64
+}
+
+func (groupDel *GroupDel) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupDel.sender)
+	binary.Write(buffer, binary.BigEndian, groupDel.gid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupDel *GroupDel) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupDel.sender)
+	binary.Read(buffer, binary.BigEndian, &groupDel.gid)
+	
+	return true
+}
+
+type GroupRemove struct {
+	sender int64
+	gid int64
+	uid int64
+}
+
+func (groupRemove *GroupRemove) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupRemove.sender)
+	binary.Write(buffer, binary.BigEndian, groupRemove.gid)
+	binary.Write(buffer, binary.BigEndian, groupRemove.uid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupRemove *GroupRemove) FromData(buff []byte) bool {
+	if len(buff) < 24 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupRemove.sender)
+	binary.Read(buffer, binary.BigEndian, &groupRemove.gid)
+	binary.Read(buffer, binary.BigEndian, &groupRemove.uid)
 	
 	return true
 }

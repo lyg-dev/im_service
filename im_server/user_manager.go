@@ -123,7 +123,31 @@ func (user_manager *UserManager) PubBlackRemove(uid int64, bid int64) {
 	if err != nil {
 		log.Info("black remove pub error:", err)
 	}
+}
+
+func (user_manager *UserManager) PubGroupCreate(gid int64) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	msg := fmt.Sprintf("%d,%d", gid, 1);
+	_, err := conn.Do("PUBLISH", "group_create", msg)
+	
+	if err != nil {
+		log.Info("group create error:", err)
+	}
 } 
+
+func (user_manager *UserManager) PubGroupMemberAdd(gid int64, uid int64) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	msg := fmt.Sprintf("%d,%d", gid, uid);
+	_, err := conn.Do("PUBLISH", "group_member_add", msg)
+	
+	if err != nil {
+		log.Info("group member add pub error:", err)
+	}
+}
 
 func (user_manager *UserManager) HandleFriendAdd(data string) {
 	db, err := sql.Open("mysql", config.mysqldb_appdatasource)

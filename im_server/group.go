@@ -53,6 +53,7 @@ func NewGroup(gid int64, appid int64, members []int64, is_private bool, is_allow
 	group.desc = desc
 	group.owner = owner
 	group.members = common.NewIntSet()
+	group.members.Add(group.owner)
 	for _, m := range members {
 		group.members.Add(m)
 	}
@@ -70,6 +71,7 @@ func NewSuperGroup(gid int64, appid int64, members []int64, is_private bool, is_
 	group.desc = desc
 	group.owner = owner
 	group.members = common.NewIntSet()
+	group.members.Add(group.owner)
 	for _, m := range members {
 		group.members.Add(m)
 	}
@@ -287,15 +289,7 @@ func LoadGroupMember(db *sql.DB, group_id int64) ([]int64, error) {
 	return members, nil
 }
 
-func CreateGroup(db *sql.DB, id int64, title string, desc string, isPrivate bool, isAllowInvite bool, owner int64, gouhao int64) bool {
-//	conn := redis_pool.Get()
-//	defer conn.Close()
-	
-//	gouhao, err := redis.Int(conn.Do("SPOP", "user_app_group_gouhao_set"))
-//	if err != nil {
-//		log.Info("get group gouhao err", err)
-//	}
-	
+func CreateGroup(db *sql.DB, id int64, title string, desc string, isPrivate int32, isAllowInvite int32, owner int64, gouhao int) bool {	
 	stmt, err := db.Prepare("INSERT INTO `group` (id, title, desc, owner, gouhao, isPrivate, isAllowInvite) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		log.Info("error:", err)
@@ -304,17 +298,7 @@ func CreateGroup(db *sql.DB, id int64, title string, desc string, isPrivate bool
 	
 	defer stmt.Close()
 	
-	pri := 0
-	allow := 0
-	if isPrivate {
-		pri = 1
-	}
-	
-	if isAllowInvite {
-		allow = 1
-	}
-	
-	_, err = stmt.Exec(id, title, desc, owner, gouhao, pri, allow)
+	_, err = stmt.Exec(id, title, desc, owner, gouhao, isPrivate, isAllowInvite)
 	if err != nil {
 		log.Info("error:", err)
 		return false

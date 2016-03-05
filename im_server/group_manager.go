@@ -107,6 +107,7 @@ func (group_manager *GroupManager) HandleCreate(data string) {
 
 	if _, ok := group_manager.groups[gid]; ok {
 		log.Infof("group:%d exists\n", gid)
+		return
 	}
 	log.Infof("create group:%d appid:%d", gid, appid)
 	

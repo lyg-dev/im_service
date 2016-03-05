@@ -26,6 +26,7 @@ import "sync/atomic"
 import log "github.com/golang/glog"
 import "database/sql"
 import _ "github.com/go-sql-driver/mysql"
+import "github.com/garyburd/redigo/redis"
 
 type IMClient struct {
 	*Connection
@@ -335,7 +336,180 @@ func (client *IMClient) HandleMessage(msg *Message) {
 		client.HandleContactBlack(msg.body.(*ContactBlack))
 	case MSG_CONTACT_UNBLACK:
 		client.HandleContactUnBlack(msg.body.(*ContactUnBlack))
+	case MSG_GROUP_CREATE:
+		client.handlerGroupCreate(msg.body.(*GroupCreate))
+	case MSG_GROUP_SELF_JOIN:
+		client.handlerGroupSelfJoin(msg.body.(*GroupSelfJoin))
+	case MSG_GROUP_INVITE_JOIN:
+		client.handlerGroupInviteJoin(msg.body.(*GroupInviteJoin))
+	case MSG_GROUP_REMOVE:
+		client.handlerGroupRemove(msg.body.(*GroupRemove))
+	case MSG_GROUP_QUIT:
+		client.handlerGroupQuit(msg.body.(*GroupQuit))
+	case MSG_GROUP_DEL:
+		client.handlerGroupDel(msg.body.(*GroupDel))
 	}
+}
+
+func (client *IMClient) handlerGroupDel(groupDel *GroupDel) {
+	
+}
+
+func (client *IMClient) handlerGroupQuit(groupQuit *GroupQuit) {
+	
+}
+
+func (client *IMClient) handlerGroupRemove(groupRemove *GroupRemove) {
+	
+}
+
+func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin) {
+	group := group_manager.FindGroup(groupInviteJoin.gid)
+	
+	if group == nil {
+		msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if group.owner != client.uid && !group.is_allow_invite{
+		msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{2}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if !group.IsMember(client.uid) {
+		msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{3}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	for _, member := range groupInviteJoin.members {
+		if group.IsMember(member) {
+			continue
+		}
+		
+		if !AddGroupMember(db, group.gid, member, 0) {
+			continue
+		}
+		
+		group.AddMember(member)
+		user_manager.PubGroupMemberAdd(group.gid, member)
+	}
+	
+	msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
+	client.wt <- msg
+}
+
+func (client *IMClient) handlerGroupSelfJoin(groupSelfJoin *GroupSelfJoin) {
+	group := group_manager.FindGroup(groupSelfJoin.gid)
+	
+	if group == nil {
+		msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if group.owner == client.uid {
+		msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{2}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	if group.is_private {
+		msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{3}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	if !group.IsMember(client.uid) {
+		if !AddGroupMember(db, group.gid, client.uid, 0) {
+			msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{4}}
+			client.wt <- msg
+				
+			return
+		}
+		
+		group.AddMember(client.uid)
+		user_manager.PubGroupMemberAdd(group.gid, client.uid)
+	}
+	
+	msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
+	client.wt <- msg
+}
+
+func (client *IMClient) handlerGroupCreate(groupCreate *GroupCreate) {
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	gouhao, err := redis.Int(conn.Do("SPOP", "user_app_group_gouhao_set"))
+	if err != nil {
+		log.Info("get group gouhao err", err)
+	}
+	
+	gid := GenerateGroupUUID(client.uid)
+	
+	if !CreateGroup(db, gid, groupCreate.title, groupCreate.desc, groupCreate.is_private, groupCreate.is_allow_invite, client.uid, gouhao) {
+		msg := &Message{cmd: MSG_GROUP_CREATE_RESP, version:DEFAULT_VERSION, body: &GroupCreateResp{1, 0}}
+		client.wt <- msg
+			
+		return
+	}
+	
+	group_manager.mutex.Lock()
+	defer group_manager.mutex.Unlock()
+	
+	pri := true
+	if groupCreate.is_private == 0 {
+		pri = false
+	}
+	
+	allow := true
+	if groupCreate.is_allow_invite == 0 {
+		allow = false
+	}
+	
+	group_manager.groups[gid] = NewGroup(gid, 1, groupCreate.members, pri, allow, groupCreate.title, groupCreate.desc, client.uid)
+	
+	AddGroupMember(db, gid, client.uid, 1)
+	for _, member := range groupCreate.members {
+		if member == client.uid {
+			continue
+		}
+		AddGroupMember(db, gid, member, 0)
+	}
+	
+	user_manager.PubGroupCreate(gid)
+	
+	msg := &Message{cmd: MSG_GROUP_CREATE_RESP, version:DEFAULT_VERSION, body: &GroupCreateResp{0, gid}}
+	client.wt <- msg
 }
 
 func (client *IMClient) HandleContactBlack(contactBlack *ContactBlack) {
