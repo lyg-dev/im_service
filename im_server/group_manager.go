@@ -94,6 +94,13 @@ func (group_manager *GroupManager) HandleCreate(data string) {
 		log.Info("error:", err)
 		return
 	}
+	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
 
 	group_manager.mutex.Lock()
 	defer group_manager.mutex.Unlock()
@@ -103,7 +110,19 @@ func (group_manager *GroupManager) HandleCreate(data string) {
 	}
 	log.Infof("create group:%d appid:%d", gid, appid)
 	
-	group_manager.groups[gid] = NewSuperGroup(gid, appid, nil)
+	title, desc, isPrivate, isAllowInvite, owner, err :=  LoadGroupById(db, gid)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	
+	members, err := LoadGroupMember(db, gid)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	
+	group_manager.groups[gid] = NewGroup(gid, 1, members, isPrivate, isAllowInvite, title, desc, owner)
 }
 
 func (group_manager *GroupManager) HandleDisband(data string) {
@@ -124,13 +143,6 @@ func (group_manager *GroupManager) HandleDisband(data string) {
 }
 
 func (group_manager *GroupManager) HandleMemberAdd(data string) {
-	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
-	if err != nil {
-		log.Info("error:", err)
-		return
-	}
-	defer db.Close()
-	
 	arr := strings.Split(data, ",")
 	if len(arr) != 2 {
 		log.Info("message error")
@@ -150,7 +162,6 @@ func (group_manager *GroupManager) HandleMemberAdd(data string) {
 	group := group_manager.FindGroup(gid)
 	if group != nil {
 		group.AddMember(uid)
-		AddGroupMember(db, gid, uid)
 		if group_manager.observer != nil {
 			group_manager.observer.OnGroupMemberAdd(group, uid)
 		}
@@ -160,14 +171,7 @@ func (group_manager *GroupManager) HandleMemberAdd(data string) {
 	}
 }
 
-func (group_manager *GroupManager) HandleMemberRemove(data string) {
-	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
-	if err != nil {
-		log.Info("error:", err)
-		return
-	}
-	defer db.Close()
-	
+func (group_manager *GroupManager) HandleMemberRemove(data string) {	
 	arr := strings.Split(data, ",")
 	if len(arr) != 2 {
 		log.Info("message error")
@@ -187,7 +191,6 @@ func (group_manager *GroupManager) HandleMemberRemove(data string) {
 	group := group_manager.FindGroup(gid)
 	if group != nil {
 		group.RemoveMember(uid)
-		RemoveGroupMember(db, gid, uid)
 		if group_manager.observer != nil {
 			group_manager.observer.OnGroupMemberRemove(group, uid)
 		}

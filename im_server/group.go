@@ -33,15 +33,25 @@ type Group struct {
 	gid     int64
 	appid   int64
 	super   bool //超大群
+	is_private bool
+	is_allow_invite bool
+	title	string
+	desc	string
+	owner int64
 	mutex   sync.Mutex
 	members common.IntSet
 }
 
-func NewGroup(gid int64, appid int64, members []int64) *Group {
+func NewGroup(gid int64, appid int64, members []int64, is_private bool, is_allow_invite bool, title string, desc string, owner int64) *Group {
 	group := new(Group)
 	group.appid = appid
 	group.gid = gid
 	group.super = false
+	group.is_private = is_private
+	group.is_allow_invite = is_allow_invite
+	group.title = title
+	group.desc = desc
+	group.owner = owner
 	group.members = common.NewIntSet()
 	for _, m := range members {
 		group.members.Add(m)
@@ -49,11 +59,16 @@ func NewGroup(gid int64, appid int64, members []int64) *Group {
 	return group
 }
 
-func NewSuperGroup(gid int64, appid int64, members []int64) *Group {
+func NewSuperGroup(gid int64, appid int64, members []int64, is_private bool, is_allow_invite bool, title string, desc string, owner int64) *Group {
 	group := new(Group)
 	group.appid = appid
 	group.gid = gid
 	group.super = true
+	group.is_private = is_private
+	group.is_allow_invite = is_allow_invite
+	group.title = title
+	group.desc = desc
+	group.owner = owner
 	group.members = common.NewIntSet()
 	for _, m := range members {
 		group.members.Add(m)
@@ -92,41 +107,128 @@ func (group *Group) IsEmpty() bool {
 	return len(group.members) == 0
 }
 
-func AddGroupMember(db *sql.DB, group_id int64, uid int64) bool {
+func AddGroupMember(db *sql.DB, group_id int64, uid int64, isOwner int) bool {
+	var stmt1, stmt2 *sql.Stmt
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+
 	sql := fmt.Sprintf("INSERT INTO `group_members_0%d` ( `group_id`, `user_id`, `create_time`, `update_time`) select '%d', %d, %d, %d from dual where not exists(select * from group_members_0%d where group_id='%d' and user_id=%d)",
 			group_id % 10, group_id, uid, time.Now().Unix(), time.Now().Unix(), group_id % 10, group_id, uid)
-	stmtIns, err := db.Prepare(sql)
+	stmt1, err = tx.Prepare(sql)
 	if err != nil {
 		log.Info("error:", err)
-		return false
+		goto ROLLBACK
 	}
-	defer stmtIns.Close()
-	_, err = stmtIns.Exec()
+	defer stmt1.Close()
+	_, err = stmt1.Exec()
 	if err != nil {
 		log.Info("error:", err)
-		return false
+		goto ROLLBACK
 	}
+
+	sql = fmt.Sprintf("INSERT INTO `user_groups_0%d` ( `group_id`, `user_id`, `isOwner`, `type`) select '%d', %d, %d, %d from dual where not exists(select * from user_groups_0%d where type=1 and group_id='%d' and user_id=%d)",
+			uid % 10, group_id, uid, isOwner, 1, uid % 10, group_id, uid)
+	stmt2, err = tx.Prepare(sql)
+	if err != nil {
+		log.Info("error:", err)
+		goto ROLLBACK
+	}
+	defer stmt2.Close()
+	_, err = stmt2.Exec()
+	if err != nil {
+		log.Info("error:", err)
+		goto ROLLBACK
+	}
+
+	tx.Commit()
 	return true
+
+ROLLBACK:
+	tx.Rollback()
+	return false
 }
 
 func RemoveGroupMember(db *sql.DB, group_id int64, uid int64) bool {
+	var stmt1, stmt2 *sql.Stmt
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+
 	sql := fmt.Sprintf("delete from group_members_0%d where group_id=? and user_id=?", group_id % 10);
-	stmtIns, err := db.Prepare(sql)
+	stmt1, err = tx.Prepare(sql)
 	if err != nil {
 		log.Info("error:", err)
-		return false
+		goto ROLLBACK
 	}
-	defer stmtIns.Close()
-	_, err = stmtIns.Exec(group_id, uid)
+	defer stmt1.Close()
+	_, err = stmt1.Exec(group_id, uid)
 	if err != nil {
 		log.Info("error:", err)
-		return false
+		goto ROLLBACK
 	}
+
+	sql = fmt.Sprintf("delete from user_groups_0%d where type=1 and group_id=? and user_id=?", uid % 10);
+	stmt2, err = tx.Prepare(sql)
+	if err != nil {
+		log.Info("error:", err)
+		goto ROLLBACK
+	}
+	defer stmt2.Close()
+	_, err = stmt2.Exec(group_id, uid)
+	if err != nil {
+		log.Info("error:", err)
+		goto ROLLBACK
+	}
+
+	tx.Commit()
 	return true
+
+ROLLBACK:
+	tx.Rollback()
+	return false
+}
+
+func LoadGroupById(db *sql.DB, id int64) (string, string, bool, bool, int64, error) {
+	stmtIns, err := db.Prepare("select title, desc, owner, isPrivate, isAllowInvite from `group` where id=?")
+	if err != nil {
+		log.Info("error:", err)
+		return "", "", false, false, 0, err
+	}
+
+	defer stmtIns.Close()
+	
+	var title, desc string
+	var owner int64
+	var isPrivate, isAllowInvite int
+	err = stmtIns.QueryRow(id).Scan(&title, &desc, &owner, &isPrivate, &isAllowInvite)
+	if err != nil {
+		log.Info("error:", err)
+		return "", "", false, false, 0, err
+	}
+	
+	isPri := true
+	isAllow := true
+	
+	if isPrivate == 0 {
+		isPri = false
+	}
+	
+	if isAllowInvite == 0 {
+		isAllow = false
+	}
+	
+	return title, desc, isPri, isAllow, owner, nil
 }
 
 func LoadAllGroup(db *sql.DB) (map[int64]*Group, error) {
-	stmtIns, err := db.Prepare("select id from `group` where isDeleted=0 and type=1")
+	stmtIns, err := db.Prepare("select id, title, desc, owner, isPrivate, isAllowInvite from `group` where isDeleted=0 and type=1")
 	if err != nil {
 		log.Info("error:", err)
 		return nil, nil
@@ -137,14 +239,30 @@ func LoadAllGroup(db *sql.DB) (map[int64]*Group, error) {
 	rows, err := stmtIns.Query()
 	for rows.Next() {
 		var id int64
-		rows.Scan(&id)
+		var owner int64
+		var title string
+		var desc string
+		var isPrivate int
+		var isAllowInvite int
+		rows.Scan(&id, &title, &desc, &owner, &isPrivate, &isAllowInvite)
 		members, err := LoadGroupMember(db, id)
 		if err != nil {
 			log.Info("error:", err)
 			continue
 		}
 
-		group := NewSuperGroup(id, 1, members)
+		isPri := true
+		isAllow := true
+		
+		if isPrivate == 0 {
+			isPri = false
+		}
+		
+		if isAllowInvite == 0 {
+			isAllow = false
+		}
+		
+		group := NewGroup(id, 1, members, isPri, isAllow, title, desc, owner)
 		groups[group.gid] = group
 	}
 	return groups, nil
@@ -167,4 +285,62 @@ func LoadGroupMember(db *sql.DB, group_id int64) ([]int64, error) {
 		members = append(members, uid)
 	}
 	return members, nil
+}
+
+func CreateGroup(db *sql.DB, id int64, title string, desc string, isPrivate bool, isAllowInvite bool, owner int64, gouhao int64) bool {
+//	conn := redis_pool.Get()
+//	defer conn.Close()
+	
+//	gouhao, err := redis.Int(conn.Do("SPOP", "user_app_group_gouhao_set"))
+//	if err != nil {
+//		log.Info("get group gouhao err", err)
+//	}
+	
+	stmt, err := db.Prepare("INSERT INTO `group` (id, title, desc, owner, gouhao, isPrivate, isAllowInvite) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+	
+	defer stmt.Close()
+	
+	pri := 0
+	allow := 0
+	if isPrivate {
+		pri = 1
+	}
+	
+	if isAllowInvite {
+		allow = 1
+	}
+	
+	_, err = stmt.Exec(id, title, desc, owner, gouhao, pri, allow)
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+	
+	return true
+}
+
+func DeleteGroup(db *sql.DB, id int64) bool {
+	stmt, err := db.Prepare("UPDATE `group` SET isDeleted=1 WHERE id=?")
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+	
+	defer stmt.Close()
+	
+	_, err = stmt.Exec(id)
+	if err != nil {
+		log.Info("error:", err)
+		return false
+	}
+	
+	return true
+}
+
+func GenerateGroupUUID(uid int64) int64 {
+	return int64(time.Now().Nanosecond() / 1000) * 1000000 + uid % 1000000
 }
