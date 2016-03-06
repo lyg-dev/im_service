@@ -324,7 +324,7 @@ func main() {
 	customer_service = NewCustomerService()
 	customer_service.Start()
 
-	redis_pool = NewRedisPool(config.redis_address, "")
+	redis_pool = NewRedisPool(config.redis_address, config.redis_password)
 
 	storage_pools = make([]*StorageConnPool, 0)
 	for _, addr := range(config.storage_addrs) {
