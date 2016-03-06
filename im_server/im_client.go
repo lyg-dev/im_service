@@ -379,6 +379,26 @@ func (client *IMClient) handlerGroupDel(groupDel *GroupDel) {
 	
 	for member, _ := range group.members {
 		RemoveGroupMember(db, groupDel.gid, member)
+		
+		//构造一条透传发送群解散透传
+		obj := make(map[string]interface{})
+		obj["cmd"] = CMD_CALLBACK_GROUP_DEL
+		obj["from"] = client.uid
+		obj["to"] = group.gid
+		obj["msg"] = ""
+		
+		msg := &IMMessage{}
+		msg.sender = client.uid
+		msg.receiver = member
+		msg.timestamp = int32(time.Now().Unix())
+		content, err := json.Marshal(obj)
+		if err != nil {
+			return
+		}
+		msg.content = string(content)
+		m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+	
+		SaveMessage(client.appid, msg.receiver, client.device_ID, m)
 	}
 	
 	msg := &Message{cmd: MSG_GROUP_DEL_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
@@ -464,8 +484,28 @@ func (client *IMClient) handlerGroupRemove(groupRemove *GroupRemove) {
 	group.RemoveMember(groupRemove.uid)
 	user_manager.PubGroupMemberRemove(group.gid, groupRemove.uid)
 	
-	msg := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
-	client.wt <- msg
+	//构造一条透传发送被移除透传
+	obj := make(map[string]interface{})
+	obj["cmd"] = CMD_CALLBACK_GROUP_REMOVE
+	obj["from"] = client.uid
+	obj["to"] = group.gid
+	obj["msg"] = ""
+	
+	msg := &IMMessage{}
+	msg.sender = client.uid
+	msg.receiver = groupRemove.uid
+	msg.timestamp = int32(time.Now().Unix())
+	content, err := json.Marshal(obj)
+	if err != nil {
+		return
+	}
+	msg.content = string(content)
+	m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+
+	SaveMessage(client.appid, msg.receiver, client.device_ID, m)
+	
+	msgResp := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
+	client.wt <- msgResp
 }
 
 func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin) {
@@ -517,6 +557,26 @@ func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin)
 		
 		group.AddMember(member)
 		user_manager.PubGroupMemberAdd(group.gid, member)
+		
+		//构造一条透传发送被拉入群
+		obj := make(map[string]interface{})
+		obj["cmd"] = CMD_CALLBACK_GROUP_JOIN
+		obj["from"] = client.uid
+		obj["to"] = group.gid
+		obj["msg"] = ""
+		
+		msg := &IMMessage{}
+		msg.sender = client.uid
+		msg.receiver = member
+		msg.timestamp = int32(time.Now().Unix())
+		content, err := json.Marshal(obj)
+		if err != nil {
+			return
+		}
+		msg.content = string(content)
+		m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+	
+		SaveMessage(client.appid, msg.receiver, client.device_ID, m)
 	}
 	
 	msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
@@ -630,7 +690,27 @@ func (client *IMClient) handlerGroupCreate(groupCreate *GroupCreate) {
 			continue
 		}
 		
-		AddGroupMember(db, gid, member, 0)
+		if AddGroupMember(db, gid, member, 0) {
+			//构造一条透传发送被拉入群
+			obj := make(map[string]interface{})
+			obj["cmd"] = CMD_CALLBACK_GROUP_JOIN
+			obj["from"] = client.uid
+			obj["to"] = gid
+			obj["msg"] = ""
+			
+			msg := &IMMessage{}
+			msg.sender = client.uid
+			msg.receiver = member
+			msg.timestamp = int32(time.Now().Unix())
+			content, err := json.Marshal(obj)
+			if err != nil {
+				return
+			}
+			msg.content = string(content)
+			m := &Message{cmd: MSG_TRANSMIT_USER, version:DEFAULT_VERSION, body: msg}
+		
+			SaveMessage(client.appid, msg.receiver, client.device_ID, m)
+		}
 	}
 	
 	user_manager.PubGroupCreate(gid)
