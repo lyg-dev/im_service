@@ -198,7 +198,7 @@ ROLLBACK:
 }
 
 func LoadGroupById(db *sql.DB, id int64) (string, string, bool, bool, int64, error) {
-	stmtIns, err := db.Prepare("select title, desc, owner, isPrivate, isAllowInvite from `group` where id=?")
+	stmtIns, err := db.Prepare("select `title`, `desc`, `owner`, `isPrivate`, `isAllowInvite` from `group` where id=?")
 	if err != nil {
 		log.Info("error:", err)
 		return "", "", false, false, 0, err
@@ -230,7 +230,7 @@ func LoadGroupById(db *sql.DB, id int64) (string, string, bool, bool, int64, err
 }
 
 func LoadAllGroup(db *sql.DB) (map[int64]*Group, error) {
-	stmtIns, err := db.Prepare("select id, title, desc, owner, isPrivate, isAllowInvite from `group` where isDeleted=0 and type=1")
+	stmtIns, err := db.Prepare("select `id`, `title`, `desc`, `owner`, `isPrivate`, `isAllowInvite` from `group` where isDeleted=0 and type=1")
 	if err != nil {
 		log.Info("error:", err)
 		return nil, nil
@@ -290,7 +290,7 @@ func LoadGroupMember(db *sql.DB, group_id int64) ([]int64, error) {
 }
 
 func CreateGroup(db *sql.DB, id int64, title string, desc string, isPrivate int32, isAllowInvite int32, owner int64, gouhao int) bool {	
-	stmt, err := db.Prepare("INSERT INTO `group` (id, title, desc, owner, gouhao, isPrivate, isAllowInvite) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	stmt, err := db.Prepare("INSERT INTO `group` (`id`, `title`, `desc`, `owner`, `gouhao`, `isPrivate`, `isAllowInvite`, `create_time`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		log.Info("error:", err)
 		return false
@@ -298,7 +298,7 @@ func CreateGroup(db *sql.DB, id int64, title string, desc string, isPrivate int3
 	
 	defer stmt.Close()
 	
-	_, err = stmt.Exec(id, title, desc, owner, gouhao, isPrivate, isAllowInvite)
+	_, err = stmt.Exec(id, title, desc, owner, gouhao, isPrivate, isAllowInvite, time.Now().Unix())
 	if err != nil {
 		log.Info("error:", err)
 		return false
@@ -326,5 +326,5 @@ func DeleteGroup(db *sql.DB, id int64) bool {
 }
 
 func GenerateGroupUUID(uid int64) int64 {
-	return int64(time.Now().Nanosecond() / 1000) * 1000000 + uid % 1000000
+	return int64(time.Now().UnixNano() / 1000) * 1000000 + uid % 1000000
 }
