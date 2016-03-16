@@ -1,0 +1,230 @@
+IM_server 通信协议
+
+byte 1字节
+int 4字节
+int64 8字节
+
+
+发送消息:
+所有通信都统一有一个head(16字节)
+head{
+	int body.length 主体内容的长度
+	int seq 本地的消息序号每次发送后自增1
+	int cmd 消息命令
+	byte version 版本号
+	null 后空3字节
+}
+
+sendauth认证
+cmd = MSG_AUTH_TOKEN
+body{
+	byte platformid 平台id,ios=1 android=2 web=3
+	byte accessToken.length  Token的长度
+	byte[] accessToken  Token内容
+	byte deviceID.leght 唯一设备号的长度
+	byte[] deviceID 设备号内容
+}
+
+enterRoom 加入聊天室
+cmd = MSG_ENTER_ROOM
+body{
+	int64 roomID
+}
+
+inviteUser 加好友
+cmd = MSG_CONTACT_INVITE
+body{
+	int64 sender 申请人
+	int64 receiver 被申请人
+	byte[] reason 申请内容
+}
+
+accept 通过加好友
+cmd = MSG_CONTACT_ACCEPT
+body{
+	int64 sender
+	int64 receiver
+}
+
+refause 拒绝加好友
+cmd = MSG_CONTACT_REFUSE
+body{
+	int64 sender
+	int64 receiver
+}
+
+delete 删除好友
+cmd = MSG_CONTACT_DEL
+body{
+	int64 sender
+	int64 receiver 删除对象
+}
+
+black 拉黑
+cmd = MSG_CONTACT_BLACK
+body{
+	int64 sender
+	int64 receiver 拉黑对象
+}
+
+unblack 解除拉黑
+cmd = MSG_CONTACT_UNBLACK
+body{
+	int64 sender
+	int64 receiver 解除拉黑对象
+}
+
+groupCreate 建群
+cmd = MSG_GROUP_CREATE
+body{
+	int isPrivate 是否私人群
+	int isAllowInvite 是否可以拉人进群
+	int members.length 邀请用户个数
+	int64[] members 邀请用户
+	int title.length 群名长度
+	int desc.lengt 群介绍长度
+	byte[] title 群名
+	byte[] desc 群介绍
+}
+
+groupRemove 群踢人
+cmd = MSG_GROUP_REMOVE
+body{
+	int64 groupId
+	int64 userId
+}
+
+groupQuit 退群
+cmd = MSG_GROUP_QUIT
+body{
+	int64 groupId
+}
+
+groupDel 解散群
+cmd = MSG_GROUP_DEL
+body{
+	int64 groupId
+}
+
+groupSelfJoin 加群
+cmd = MSG_GROUP_SELF_JOIN
+body{
+	int64 groupId
+}
+
+groupInviteJoin 拉人进群
+cmd = MSG_GROUP_INVITE_JOIN
+body{
+	int64 groupId
+	int members.length
+	int64[] members
+}
+
+sendPeerMessage 点对点消息
+cmd = MSG_IM
+body{
+	int64 sender
+	int64 receiver
+	int timestamp
+	int msgLocalID
+	byte[] content
+}
+
+sendRoomMessage 聊天室消息
+cmd = MSG_ROOM_IM
+body{
+	int64 sender
+	int64 receiver
+	byte[] content
+}
+
+
+sendGroupMessage 群消息
+cmd = MSG_GROUP_IM
+body{
+	int64 sender
+	int64 receiver
+	int timestamp
+	int msgLocalID
+	byte[] content
+}
+
+
+接收消息
+文件头同发消息
+head{
+	int body.length 主体内容的长度
+	int seq 本地的消息序号每次发送后自增1
+	int cmd 消息命令
+	byte version 版本号
+	null 后空3字节
+}
+
+对应cmd解析
+MSG_IM:
+body{
+	int64 sender
+	int64 receiver
+	int timestamp
+	int msgId
+	byte[] content
+}
+
+MSG_ROOM_IM:
+body{
+	int64 sender
+	int64 roomID
+	byte[] content
+}
+
+MSG_GROUP_IM:
+body{
+	int64 sender
+	int64 groupId
+	int timestamp
+	int msgId
+	byte[] content
+}
+
+MSG_AUTH_STATUS:
+MSG_GROUP_INVITE_JOIN_RESP:
+MSG_GROUP_REMOVE_RESP:
+MSG_GROUP_QUIT_RESP:
+MSG_GROUP_DEL_RESP:
+MSG_GROUP_SELF_JOIN_RESP:
+body{
+	int status
+}
+
+MSG_ACK:
+body{
+	int ack
+}
+
+MSG_CONTACT_INVITE_RESP:
+MSG_CONTACT_ACCEPT_RESP:
+MSG_CONTACT_REFUSE_RESP:
+MSG_CONTACT_REFUSE_RESP:
+MSG_CONTACT_DEL_RESP:
+MSG_CONTACT_BLACK_RESP:
+MSG_CONTACT_UNBLACK_RESP:
+body{
+	int status
+	int64 sender
+	int64 receiver
+}
+
+MSG_GROUP_CREATE_RESP:
+body{
+	int status
+	int64 groupId
+}
+
+MSG_TRANSMIT_USER:
+body{
+	int64 sender
+	int64 groupId
+	int timestamp
+	int msgId
+	byte[] content
+}
