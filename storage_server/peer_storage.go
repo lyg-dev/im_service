@@ -19,25 +19,64 @@
 
 package main
 
-import "fmt"
-import "strconv"
-import log "github.com/golang/glog"
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+)
 
-type AppUserLoginID struct {
-	appid     int64
-	uid       int64
-	device_id int64
-}
+import log "github.com/golang/glog"
+import ots2 "github.com/GiterLab/goots"
+//import "github.com/GiterLab/goots/log"
+import . "github.com/GiterLab/goots/otstype"
 
 type PeerStorage struct {
-	*StorageFile
-	received map[AppUserLoginID]int64
+	ots2_client *ots2.OTSClient
+	mutex sync.Mutex
 }
 
-func NewPeerStorage(f *StorageFile) *PeerStorage {
-	storage := &PeerStorage{StorageFile: f}
-	storage.received = make(map[AppUserLoginID]int64)
+func NewPeerStorage(ots2_client *ots2.OTSClient) *PeerStorage {
+	storage := &PeerStorage{}
+	storage.ots2_client = ots2_client
 	return storage
+}
+
+func (storage *PeerStorage) saveMessage(msg *Message) int64 {
+	m := msg.body.(*IMMessage)
+	
+	msgid, err := iw.NextId()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	m.msgid = msgid
+	
+	primaryKey := &OTSPrimaryKey{
+		"uid" : m.receiver,
+		"msgid" : m.msgid,
+	}
+	
+	bs, err := json.Marshal(*m)
+	if err != nil {
+		log.Infoln(err)
+		return 0
+	}
+	
+	attributeColumns := &OTSAttribute{
+		"cmd" : msg.cmd,
+		"seq" : msg.seq,
+		"version" : msg.version,
+		"body" : string(bs),
+	}
+	
+	condition := OTSCondition_EXPECT_NOT_EXIST
+	_, err = storage.ots2_client.PutRow("msg_user", condition, primaryKey, attributeColumns)
+	if err != nil {
+		log.Infoln(err)
+		return 0
+	}
+	
+	return msgid
 }
 
 func (storage *PeerStorage) SavePeerMessage(appid int64, uid int64, device_id int64, msg *Message) int64 {
@@ -45,145 +84,185 @@ func (storage *PeerStorage) SavePeerMessage(appid int64, uid int64, device_id in
 	defer storage.mutex.Unlock()
 	//写入message
 	msgid := storage.saveMessage(msg)
-	//获取对应user在离线消息中的最后一个msgid
-	last_id, _ := storage.GetLastMessageID(appid, uid)
-	//离线消息
-	off := &OfflineMessage{appid: appid, receiver: uid, msgid: msgid, device_id: device_id, prev_msgid: last_id}
-	m := &Message{cmd: MSG_OFFLINE, body: off}
-	last_id = storage.saveMessage(m)
 
-	storage.SetLastMessageID(appid, uid, last_id)
+	//设置用户最近一条消息id
+	storage.setLastMessageID(appid, uid, msgid)
 	return msgid
+}
+
+func (storage *PeerStorage) getLastMessageID(appid int64, receiver int64) (int64, error) {
+	primaryKey := &OTSPrimaryKey{
+		"uid" : receiver,
+	}
+	
+	columnsToGet := &OTSColumnsToGet{
+		"msgid",
+	}
+	
+	get_row_response, err := storage.ots2_client.GetRow("msg_user_last_id", primaryKey, columnsToGet)
+	if err != nil {
+		return 0, err
+	}
+	
+	if get_row_response.Row != nil {
+		if attributeColumns := get_row_response.Row.GetAttributeColumns(); attributeColumns != nil {
+			msgid := attributeColumns.Get("msgid").(int64)
+			return msgid, nil
+		}
+	}
+	
+	return 0, nil
 }
 
 //获取最近消息ID
 func (storage *PeerStorage) GetLastMessageID(appid int64, receiver int64) (int64, error) {
-	//key: appid_receiver_0
-	key := fmt.Sprintf("%d_%d_0", appid, receiver)
-	//从leveldb的中读取msgid
-	value, err := storage.db.Get([]byte(key), nil)
-	if err != nil {
-		log.Error("get err:", err)
-		return 0, err
-	}
-
-	msgid, err := strconv.ParseInt(string(value), 10, 64)
-	if err != nil {
-		log.Error("parseint err:", err)
-		return 0, err
-	}
-	return msgid, nil
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	return storage.getLastMessageID(appid, receiver)
 }
 
-//设置最近离线消息ID
-func (storage *PeerStorage) SetLastMessageID(appid int64, receiver int64, msg_id int64) {
-	//将消息id保存到leveldb
-	key := fmt.Sprintf("%d_%d_0", appid, receiver)
-	value := fmt.Sprintf("%d", msg_id)
-	err := storage.db.Put([]byte(key), []byte(value), nil)
+func (storage *PeerStorage) setLastMessageID(appid int64, receiver int64, msgid int64) {
+	primaryKey := &OTSPrimaryKey{
+		"uid" : receiver,
+	}
+	
+	attributeColumns := &OTSAttribute{
+		"msgid" : msgid,
+	}
+	
+	condition := OTSCondition_IGNORE
+	_, err := storage.ots2_client.PutRow("msg_user_last_id", condition, primaryKey, attributeColumns)
 	if err != nil {
-		log.Error("put err:", err)
-		return
+		log.Infoln(err)
 	}
 }
 
-//设置最后一条读取的id
+//设置最新消息ID
+func (storage *PeerStorage) SetLastMessageID(appid int64, receiver int64, msgid int64) {	
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	storage.setLastMessageID(appid, receiver, msgid)
+}
+
+func (storage *PeerStorage) setLastReceivedID(appid int64, uid int64, did int64, msgid int64) {
+	primaryKey := &OTSPrimaryKey{
+		"uid" : uid,
+		"deviceid" : did,
+	}
+	
+	attributeColumns := &OTSAttribute{
+		"msgid" : msgid,
+	}
+	
+	condition := OTSCondition_IGNORE
+	_, err := storage.ots2_client.PutRow("msg_user_last_recv_id", condition, primaryKey, attributeColumns)
+	if err != nil {
+		log.Infoln(err)
+	}
+}
+
+//设置最后一条已接收的msgid
 func (storage *PeerStorage) SetLastReceivedID(appid int64, uid int64, did int64, msgid int64) {
-	//appid_uid_did_1
-	key := fmt.Sprintf("%d_%d_%d_1", appid, uid, did)
-	value := fmt.Sprintf("%d", msgid)
-	err := storage.db.Put([]byte(key), []byte(value), nil)
-	if err != nil {
-		log.Error("put err:", err)
-		return
-	}
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	storage.setLastReceivedID(appid, uid, did, msgid)	
 }
 
-//读取最后一条读取的id
 func (storage *PeerStorage) getLastReceivedID(appid int64, uid int64, did int64) (int64, error) {
-	key := fmt.Sprintf("%d_%d_%d_1", appid, uid, did)
-	//找到userid
-	id := AppUserLoginID{appid: appid, uid: uid, device_id: did}
-	//如果在线的话,在线列表里找
-	if msgid, ok := storage.received[id]; ok {
-		return msgid, nil
+	primaryKey := &OTSPrimaryKey{
+		"uid" : uid,
+		"deviceid" : did,
 	}
-	//否则到离线列表里找
-	value, err := storage.db.Get([]byte(key), nil)
+	
+	columnsToGet := &OTSColumnsToGet{
+		"msgid",
+	}
+	
+	get_row_response, err := storage.ots2_client.GetRow("msg_user_last_recv_id", primaryKey, columnsToGet)
 	if err != nil {
-		log.Error("put err:", err)
 		return 0, err
 	}
-
-	msgid, err := strconv.ParseInt(string(value), 10, 64)
-	if err != nil {
-		log.Error("parseint err:", err)
-		return 0, err
+	
+	if get_row_response.Row != nil {
+		if attributeColumns := get_row_response.Row.GetAttributeColumns(); attributeColumns != nil {
+			msgid := attributeColumns.Get("msgid").(int64)
+			if err != nil {
+				return 0, err
+			}
+			return msgid, nil
+		}
 	}
-	return msgid, nil
+	
+	return 0, nil
 }
 
+//获取最近接收msgid
 func (storage *PeerStorage) GetLastReceivedID(appid int64, uid int64, did int64) (int64, error) {
 	storage.mutex.Lock()
 	defer storage.mutex.Unlock()
+	
 	return storage.getLastReceivedID(appid, uid, did)
 }
 
-//推离线消息id到队列
-func (storage *PeerStorage) DequeueOffline(msg_id int64, appid int64, receiver int64, did int64) {
-	log.Infof("dequeue offline:%d %d %d\n", appid, receiver, msg_id)
-	storage.mutex.Lock()
-	defer storage.mutex.Unlock()
-	//最后一条消息id
-	last, _ := storage.getLastReceivedID(appid, receiver, did)
-	if msg_id <= last {
-		log.Infof("ack msgid:%d last:%d\n", msg_id, last)
-		return
+func (storage *PeerStorage) loadRangeMessages(uid int64, minid int64, maxid int64) []*Message {
+	startPrimaryKey := &OTSPrimaryKey{
+		"uid" : uid,
+		"msgid" : minid,
 	}
-	id := AppUserLoginID{appid: appid, uid: receiver, device_id: did}
-	storage.received[id] = msg_id
+	
+	endPrimaryKey := &OTSPrimaryKey{
+		"uid" : uid,
+		"msgid" : maxid+1,
+	}
+	
+	columnsToGet := &OTSColumnsToGet{
+		"cmd", "seq", "version", "body",
+	}
+	
+	msgs := make([]*Message, 0, 10)
+	
+	response_row_list, ots_err := storage.ots2_client.GetRange("msg_user", OTSDirection_BACKWARD, startPrimaryKey, endPrimaryKey, columnsToGet, 10000)
+	if ots_err != nil {
+		fmt.Println(ots_err)
+		return msgs
+	}
+	
+	if response_row_list.GetRows() == nil {
+		return msgs
+	}
+	
+	for _, v := range response_row_list.GetRows() {
+		if attributeColumns := v.GetAttributeColumns(); attributeColumns != nil {
+			cmd := attributeColumns.Get("cmd").(int)
+			seq := attributeColumns.Get("seq").(int)
+			version := attributeColumns.Get("version").(int)
+			body := attributeColumns.Get("body").(string)
+			
+			immsg := IMMessage{}
+			err := json.Unmarshal([]byte(body), &immsg)
+			if err == nil {
+				msg := Message{}
+				msg.cmd = cmd
+				msg.seq = seq
+				msg.version = version
+				msg.body = &immsg
+				
+				msgs = append(msgs, &msg)
+			}
+		}
+	}
+	
+	return msgs
 }
 
-func (storage *PeerStorage) LoadLatestMessages(appid int64, receiver int64, limit int) []*EMessage {
-	//读取最后一条消息id
-	last_id, err := storage.GetLastMessageID(appid, receiver)
-	if err != nil {
-		return nil
-	}
-	messages := make([]*EMessage, 0, 10)
-	for {
-		if last_id == 0 {
-			break
-		}
-		//读msg
-		msg := storage.LoadMessage(last_id)
-		if msg == nil {
-			break
-		}
-		if msg.cmd != MSG_OFFLINE {
-			log.Warning("invalid message cmd:", msg.cmd)
-			break
-		}
-
-		off := msg.body.(*OfflineMessage)
-		msg = storage.LoadMessage(off.msgid)
-		if msg == nil {
-			break
-		}
-		//如果不是im或者groupim
-		if msg.cmd != MSG_GROUP_IM && msg.cmd != MSG_IM {
-			last_id = off.prev_msgid
-			continue
-		}
-
-		emsg := &EMessage{msgid: off.msgid, msg: msg}
-		messages = append(messages, emsg)
-		if len(messages) >= limit {
-			break
-		}
-		last_id = off.prev_msgid
-	}
-	return messages
+func (storage *PeerStorage) LoadRangeMessages(uid int64, minid int64, maxid int64) []*Message {
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	return storage.loadRangeMessages(uid, minid, maxid)
 }
 
 //读取离线消息
@@ -196,33 +275,12 @@ func (storage *PeerStorage) LoadOfflineMessage(appid int64, uid int64, did int64
 	last_received_id, _ := storage.GetLastReceivedID(appid, uid, did)
 
 	log.Infof("last id:%d last received id:%d", last_id, last_received_id)
+	msgs := storage.LoadRangeMessages(uid, last_received_id, last_id)
+	
 	c := make([]*EMessage, 0, 10)
-	msgid := last_id
-	for msgid > 0 {
-		msg := storage.LoadMessage(msgid)
-		if msg == nil {
-			log.Warningf("load message:%d error\n", msgid)
-			break
-		}
-		if msg.cmd != MSG_OFFLINE {
-			log.Warning("invalid message cmd:", Command(msg.cmd))
-			break
-		}
-		off := msg.body.(*OfflineMessage)
-
-		if off.msgid == 0 || off.msgid <= last_received_id {
-			break
-		}
-		limit := 100
-		//此设备首次登陆，只获取最近部分消息
-		if last_received_id == 0 && len(c) >= limit {
-			break
-		}
-
-		m := storage.LoadMessage(off.msgid)
-		c = append(c, &EMessage{msgid: off.msgid, device_id: off.device_id, msg: m})
-
-		msgid = off.prev_msgid
+	for _, msg := range msgs {
+		m := msg.body.(*IMMessage)
+		c = append(c, &EMessage{msgid: m.msgid, device_id: did, msg: msg})
 	}
 
 	if len(c) > 0 {
@@ -239,29 +297,9 @@ func (storage *PeerStorage) LoadOfflineMessage(appid int64, uid int64, did int64
 	return c
 }
 
-func (storage *PeerStorage) FlushReceived() {
-	if len(storage.received) > 0 {
-		log.Infof("flush received:%d \n", len(storage.received))
-	}
-
-	if len(storage.received) > 0 {
-		for id, msg_id := range storage.received {
-			storage.SetLastReceivedID(id.appid, id.uid, id.device_id, msg_id)
-			off := &MessageACKIn{appid: id.appid, receiver: id.uid, msgid: msg_id, device_id: id.device_id}
-			msg := &Message{cmd: MSG_ACK_IN, body: off}
-			storage.saveMessage(msg)
-		}
-		storage.received = make(map[AppUserLoginID]int64)
-	}
-}
-
-func (storage *PeerStorage) ExecMessage(msg *Message, msgid int64) {
-	if msg.cmd == MSG_OFFLINE {
-		off := msg.body.(*OfflineMessage)
-		storage.SetLastMessageID(off.appid, off.receiver, msgid)
-	} else if msg.cmd == MSG_ACK_IN {
-		off := msg.body.(*MessageACKIn)
-		did := off.device_id
-		storage.SetLastReceivedID(off.appid, off.receiver, did, off.msgid)
-	}
+func (storage *PeerStorage) DequeueOffline(msgid int64, appid int64, receiver int64, device_id int64) {
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	storage.setLastReceivedID(appid, receiver, device_id, msgid)
 }

@@ -19,27 +19,60 @@
 
 package main
 
-
-import "fmt"
-import "strconv"
+import "sync"
+import "encoding/json"
 import log "github.com/golang/glog"
-
-type AppGroupMemberLoginID struct {
-	appid  int64
-	gid    int64
-	uid    int64
-	device_id int64
-}
+import ots2 "github.com/GiterLab/goots"
+//import "github.com/GiterLab/goots/log"
+import . "github.com/GiterLab/goots/otstype"
 
 type GroupStorage struct {
-	*StorageFile
-	group_received   map[AppGroupMemberLoginID]int64
+	ots2_client *ots2.OTSClient
+	mutex sync.Mutex
 }
 
-func NewGroupStorage(f *StorageFile) *GroupStorage {
-	storage := &GroupStorage{StorageFile:f}
-	storage.group_received = make(map[AppGroupMemberLoginID]int64)
+func NewGroupStorage(ots2_client *ots2.OTSClient) *GroupStorage {
+	storage := &GroupStorage{}
+	storage.ots2_client = ots2_client
 	return storage
+}
+
+func (storage *GroupStorage) saveMessage(msg *Message) int64 {
+	m := msg.body.(*IMMessage)
+	
+	msgid, err := iw.NextId()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	m.msgid = msgid
+	
+	primaryKey := &OTSPrimaryKey{
+		"gid" : m.receiver,
+		"msgid" : m.msgid,
+	}
+	
+	bs, err := json.Marshal(*m)
+	if err != nil {
+		log.Infoln(err)
+		return 0
+	}
+	
+	attributeColumns := &OTSAttribute{
+		"cmd" : msg.cmd,
+		"seq" : msg.seq,
+		"version" : msg.version,
+		"body" : string(bs),
+	}
+	
+	condition := OTSCondition_EXPECT_NOT_EXIST
+	_, err = storage.ots2_client.PutRow("msg_group", condition, primaryKey, attributeColumns)
+	if err != nil {
+		log.Infoln(err)
+		return 0
+	}
+	
+	return msgid
 }
 
 func (storage *GroupStorage) SaveGroupMessage(appid int64, gid int64, device_id int64, msg *Message) int64 {
@@ -48,70 +81,113 @@ func (storage *GroupStorage) SaveGroupMessage(appid int64, gid int64, device_id 
 
 	msgid := storage.saveMessage(msg)
 
-	last_id, _ := storage.GetLastGroupMessageID(appid, gid)
-	lt := &GroupOfflineMessage{appid:appid, gid:gid, msgid:msgid, device_id:device_id, prev_msgid:last_id}
-	m := &Message{cmd:MSG_GROUP_IM_LIST, body:lt}
-	
-	last_id = storage.saveMessage(m)
-	storage.SetLastGroupMessageID(appid, gid, last_id)
+	storage.setLastGroupMessageID(appid, gid, msgid)
 	return msgid
 }
 
-func (storage *GroupStorage) SetLastGroupMessageID(appid int64, gid int64, msgid int64) {
-	key := fmt.Sprintf("g_%d_%d", appid, gid)
-	value := fmt.Sprintf("%d", msgid)	
-	err := storage.db.Put([]byte(key), []byte(value), nil)
-	if err != nil {
-		log.Error("put err:", err)
-		return
+func (storage *GroupStorage) setLastGroupMessageID(appid int64, gid int64, msgid int64) {
+	primaryKey := &OTSPrimaryKey{
+		"gid" : gid,
 	}
+	
+	attributeColumns := &OTSAttribute{
+		"msgid" : msgid,
+	}
+	
+	condition := OTSCondition_IGNORE
+	_, err := storage.ots2_client.PutRow("msg_group_last_id", condition, primaryKey, attributeColumns)
+	if err != nil {
+		log.Infoln(err)
+	}
+}
+
+func (storage *GroupStorage) SetLastGroupMessageID(appid int64, gid int64, msgid int64) {
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	storage.setLastGroupMessageID(appid, gid, msgid)
+}
+
+func (storage *GroupStorage) getLastGroupMessageID(appid int64, gid int64) (int64, error) {
+	primaryKey := &OTSPrimaryKey{
+		"gid" : gid,
+	}
+	
+	columnsToGet := &OTSColumnsToGet{
+		"msgid",
+	}
+	
+	get_row_response, err := storage.ots2_client.GetRow("msg_group_last_id", primaryKey, columnsToGet)
+	if err != nil {
+		return 0, err
+	}
+	
+	if get_row_response.Row != nil {
+		if attributeColumns := get_row_response.Row.GetAttributeColumns(); attributeColumns != nil {
+			msgid := attributeColumns.Get("msgid").(int64)
+			return msgid, nil
+		}
+	}
+	
+	return 0, nil
 }
 
 func (storage *GroupStorage) GetLastGroupMessageID(appid int64, gid int64) (int64, error) {
-	key := fmt.Sprintf("g_%d_%d", appid, gid)
-	value, err := storage.db.Get([]byte(key), nil)
-	if err != nil {
-		log.Error("get err:", err)
-		return 0, err
-	}
-
-	msgid, err := strconv.ParseInt(string(value), 10, 64)
-	if err != nil {
-		log.Error("parseint err:", err)
-		return 0, err
-	}
-	return msgid, nil
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	return storage.getLastGroupMessageID(appid, gid)
 }
 
-func (storage *GroupStorage) SetLastGroupReceivedID(appid int64, gid int64, uid int64, msgid int64) {
-	key := fmt.Sprintf("g_%d_%d_%d", appid, gid, uid)
-	value := fmt.Sprintf("%d", msgid)	
-	err := storage.db.Put([]byte(key), []byte(value), nil)
+func (storage *GroupStorage) setLastGroupReceivedID(appid int64, gid int64, uid int64, did int64, msgid int64) {
+	primaryKey := &OTSPrimaryKey{
+		"gid" : gid,
+		"uid" : uid,
+		"deviceid" : did,
+	}
+	
+	attributeColumns := &OTSAttribute{
+		"msgid" : msgid,
+	}
+	
+	condition := OTSCondition_IGNORE
+	_, err := storage.ots2_client.PutRow("msg_group_user_last_recv_id", condition, primaryKey, attributeColumns)
 	if err != nil {
-		log.Error("put err:", err)
-		return
+		log.Infoln(err)
 	}
 }
 
-func (storage *GroupStorage) getLastGroupReceivedID(appid int64, gid int64, uid int64, device_id int64) (int64, error) {
-	key := fmt.Sprintf("g_%d_%d_%d_%d", appid, gid, uid, device_id)
+func (storage *GroupStorage) SetLastGroupReceivedID(appid int64, gid int64, uid int64, device_id int64, msgid int64) {
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	storage.setLastGroupReceivedID(appid, gid, uid, device_id, msgid)
+}
 
-	id := AppGroupMemberLoginID{appid:appid, gid:gid, uid:uid, device_id:device_id}
-	if msgid, ok := storage.group_received[id]; ok {
-		return msgid, nil
+func (storage *GroupStorage) getLastGroupReceivedID(appid int64, gid int64, uid int64, did int64) (int64, error) {
+	primaryKey := &OTSPrimaryKey{
+		"gid" : gid,
+		"uid" : uid,
+		"deviceid" : did,
 	}
-	value, err := storage.db.Get([]byte(key), nil)
+	
+	columnsToGet := &OTSColumnsToGet{
+		"msgid",
+	}
+	
+	get_row_response, err := storage.ots2_client.GetRow("msg_group_user_last_recv_id", primaryKey, columnsToGet)
 	if err != nil {
-		log.Error("get err:", err)
 		return 0, err
 	}
-
-	msgid, err := strconv.ParseInt(string(value), 10, 64)
-	if err != nil {
-		log.Error("parseint err:", err)
-		return 0, err
+	
+	if get_row_response.Row != nil {
+		if attributeColumns := get_row_response.Row.GetAttributeColumns(); attributeColumns != nil {
+			msgid := attributeColumns.Get("msgid").(int64)
+			return msgid, nil
+		}
 	}
-	return msgid, nil
+	
+	return 0, nil
 }
 
 func (storage *GroupStorage) GetLastGroupReceivedID(appid int64, gid int64, uid int64, device_id int64) (int64, error) {
@@ -120,21 +196,65 @@ func (storage *GroupStorage) GetLastGroupReceivedID(appid int64, gid int64, uid 
 	return storage.getLastGroupReceivedID(appid, gid, uid, device_id)
 }
 
-func (storage *GroupStorage) DequeueGroupOffline(msg_id int64, appid int64, gid int64, device_id int64, receiver int64) {
-	log.Infof("dequeue group offline:%d %d %d %d\n", appid, gid, receiver, msg_id)
-	storage.mutex.Lock()
-	defer storage.mutex.Unlock()
-
-	last, _ := storage.getLastGroupReceivedID(appid, gid, receiver, device_id)
-	if msg_id <= last {
-		log.Infof("group ack msgid:%d last:%d\n", msg_id, last)
-		return
+func (storage *GroupStorage) loadRangeMessages(gid int64, minid int64, maxid int64) []*Message {
+	startPrimaryKey := &OTSPrimaryKey{
+		"gid" : gid,
+		"msgid" : minid,
 	}
-	id := AppGroupMemberLoginID{appid:appid, gid:gid, uid:receiver}
-	storage.group_received[id] = msg_id
+	
+	endPrimaryKey := &OTSPrimaryKey{
+		"gid" : gid,
+		"msgid" : maxid+1,
+	}
+	
+	columnsToGet := &OTSColumnsToGet{
+		"cmd", "seq", "version", "body",
+	}
+	
+	msgs := make([]*Message, 0, 10)
+	
+	response_row_list, err := storage.ots2_client.GetRange("msg_group", OTSDirection_BACKWARD, startPrimaryKey, endPrimaryKey, columnsToGet, 100)
+	if err != nil {
+		log.Infoln(err)
+		return msgs
+	}
+	
+	if response_row_list.GetRows() == nil {
+		return msgs
+	}
+	
+	for _, v := range response_row_list.GetRows() {
+		if attributeColumns := v.GetAttributeColumns(); attributeColumns != nil {
+			cmd := attributeColumns.Get("cmd").(int)
+			seq := attributeColumns.Get("seq").(int)
+			version := attributeColumns.Get("version").(int)
+			body := attributeColumns.Get("body").(string)
+			
+			immsg := IMMessage{}
+			json_err := json.Unmarshal([]byte(body), &immsg)
+			if json_err == nil {
+				msg := Message{}
+				msg.cmd = cmd
+				msg.seq = seq
+				msg.version = version
+				msg.body = &immsg
+				
+				msgs = append(msgs, &msg)
+			}
+		}
+	}
+	
+	return msgs
 }
 
-func (storage *GroupStorage) LoadGroupOfflineMessage(appid int64, gid int64, uid int64, device_id int64, limit int) []*EMessage {
+func (storage *GroupStorage) LoadRangeMessages(gid int64, minid int64, maxid int64) []*Message {
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	return storage.loadRangeMessages(gid, minid, maxid)
+}
+
+func (storage *GroupStorage) LoadGroupOfflineMessage(appid int64, gid int64, uid int64, device_id int64) []*EMessage {
 	last_id, err := storage.GetLastGroupMessageID(appid, gid)
 	if err != nil {
 		log.Info("get last group message id err:", err)
@@ -142,34 +262,12 @@ func (storage *GroupStorage) LoadGroupOfflineMessage(appid int64, gid int64, uid
 	}
 
 	last_received_id, _ := storage.GetLastGroupReceivedID(appid, gid, uid, device_id)
+	msgs := storage.LoadRangeMessages(gid, last_received_id, last_id)
 
 	c := make([]*EMessage, 0, 10)
-
-	msgid := last_id
-	for ; msgid > 0; {
-		msg := storage.LoadMessage(msgid)
-		if msg == nil {
-			log.Warningf("load message:%d error\n", msgid)
-			break
-		}
-		if msg.cmd != MSG_GROUP_IM_LIST {
-			log.Warning("invalid message cmd:", Command(msg.cmd))
-			break
-		}
-		off := msg.body.(*GroupOfflineMessage)
-
-		if off.msgid == 0 || off.msgid <= last_received_id {
-			break
-		}
-
-		m := storage.LoadMessage(off.msgid)
-		c = append(c, &EMessage{msgid:off.msgid, device_id:off.device_id, msg:m})
-
-		msgid = off.prev_msgid
-
-		if len(c) >= limit {
-			break
-		}
+	for _, msg := range msgs {
+		m := msg.body.(*IMMessage)
+		c = append(c, &EMessage{msgid: m.msgid, device_id: device_id, msg: msg})
 	}
 
 	if len(c) > 0 {
@@ -186,28 +284,9 @@ func (storage *GroupStorage) LoadGroupOfflineMessage(appid int64, gid int64, uid
 	return c
 }
 
-func (storage *GroupStorage) FlushReceived() {
-	if len(storage.group_received) > 0 {
-		log.Infof("flush group received:%d\n", len(storage.group_received))
-	}
-
-	if len(storage.group_received) > 0 {
-		for id, msg_id := range storage.group_received {
-			storage.SetLastGroupReceivedID(id.appid, id.gid, id.uid, msg_id)
-			off := &GroupOfflineMessage{appid:id.appid, receiver:id.uid, msgid:msg_id, gid:id.gid}
-			msg := &Message{cmd:MSG_GROUP_ACK_IN, body:off}
-			storage.saveMessage(msg)
-		}
-		storage.group_received = make(map[AppGroupMemberLoginID]int64)
-	}
-}
-
-func (storage *GroupStorage) ExecMessage(msg *Message, msgid int64) {
-	if msg.cmd == MSG_GROUP_IM_LIST {
-		off := msg.body.(*GroupOfflineMessage)
-		storage.SetLastGroupMessageID(off.appid, off.gid, msgid)
-	} else if msg.cmd == MSG_GROUP_ACK_IN {
-		off := msg.body.(*GroupOfflineMessage)
-		storage.SetLastGroupReceivedID(off.appid, off.gid, off.receiver, msgid)
-	}
+func (storage *GroupStorage) DequeueGroupOffline(msgid int64, appid int64, gid int64, receiver int64, device_id int64) {
+	storage.mutex.Lock()
+	defer storage.mutex.Unlock()
+	
+	storage.setLastGroupReceivedID(appid, gid, receiver, device_id, msgid)
 }

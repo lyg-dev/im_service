@@ -235,7 +235,7 @@ type IMMessage struct {
 	sender    int64
 	receiver  int64
 	timestamp int32
-	msgid     int32
+	msgid     int64
 	content   string
 }
 
@@ -273,7 +273,7 @@ func (message *IMMessage) ToDataV1() []byte {
 }
 
 func (im *IMMessage) FromDataV1(buff []byte) bool {
-	if len(buff) < 24 {
+	if len(buff) < 28 {
 		return false
 	}
 	buffer := bytes.NewBuffer(buff)
@@ -281,7 +281,7 @@ func (im *IMMessage) FromDataV1(buff []byte) bool {
 	binary.Read(buffer, binary.BigEndian, &im.receiver)
 	binary.Read(buffer, binary.BigEndian, &im.timestamp)
 	binary.Read(buffer, binary.BigEndian, &im.msgid)
-	im.content = string(buff[24:])
+	im.content = string(buff[28:])
 	return true
 }
 
@@ -450,7 +450,7 @@ func (ack *MessageACK) FromData(buff []byte) bool {
 type MessagePeerACK struct {
 	sender   int64
 	receiver int64
-	msgid    int32
+	msgid    int64
 }
 
 func (ack *MessagePeerACK) ToData() []byte {
@@ -463,7 +463,7 @@ func (ack *MessagePeerACK) ToData() []byte {
 }
 
 func (ack *MessagePeerACK) FromData(buff []byte) bool {
-	if len(buff) < 20 {
+	if len(buff) < 24 {
 		return false
 	}
 	buffer := bytes.NewBuffer(buff)
