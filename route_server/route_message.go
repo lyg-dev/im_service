@@ -42,6 +42,8 @@ const MSG_SUBSCRIBE_ROOM = 136
 const MSG_UNSUBSCRIBE_ROOM = 137
 const MSG_PUBLISH_ROOM = 138
 
+const MSG_SERVER_REGISTER = 139
+
 var message_descriptions map[int]string = make(map[int]string)
 
 type MessageCreator func() IMessage
@@ -188,6 +190,22 @@ type IMessage interface {
 type IVersionMessage interface {
 	ToData(version int) []byte
 	FromData(version int, buff []byte) bool
+}
+
+type ServerID struct {
+	serverid string
+}
+
+func (id *ServerID) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	buffer.Write([]byte(id.serverid))
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (id *ServerID) FromData(buff []byte) bool {
+	id.serverid = string(buff)
+	return true
 }
 
 type AppUserID struct {

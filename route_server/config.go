@@ -26,6 +26,8 @@ type RouteConfig struct {
 	listen string
 	redis_address       string
 	redis_password		string
+	mysqldb_datasource string
+	mysqldb_appdatasource string
 }
 
 func get_string(app_cfg map[string]string, key string) string {
@@ -47,5 +49,9 @@ func read_route_cfg(cfg_path string) *RouteConfig {
 	config.listen = get_string(app_cfg, "listen")
 	config.redis_address = get_string(app_cfg, "redis_address")
 	config.redis_password = get_string(app_cfg, "redis_password")
+	
+	config.mysqldb_datasource = get_string(app_cfg, "mysqldb_source")
+	config.mysqldb_appdatasource = get_string(app_cfg, "mysqldb_appsource")
+	
 	return config
 }

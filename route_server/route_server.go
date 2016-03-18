@@ -18,182 +18,42 @@
  */
 
 package main
-import "net"
-import "sync"
+import (
+	"net"
+	"sync"
+)
 import "runtime"
 import "flag"
 import "fmt"
 import "time"
 import "bytes"
 import "encoding/binary"
-import "encoding/json"
 import log "github.com/golang/glog"
 import "github.com/garyburd/redigo/redis"
-import "im_service/common"
 
 var config *RouteConfig
-var clients ClientSet
-var mutex   sync.Mutex
 var redis_pool *redis.Pool
-
-func init() {
-	clients = NewClientSet()
-}
-
-func AddClient(client *Client) {
-	mutex.Lock()
-	defer mutex.Unlock()
-	
-	clients.Add(client)
-}
-
-func RemoveClient(client *Client) {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	clients.Remove(client)
-}
-
-func FindClientSet(id *AppUserID) ClientSet {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	s := NewClientSet()
-
-	for c := range(clients) {
-		if c.ContainAppUserID(id) {
-			s.Add(c)
-		}
-	}
-	return s
-}
-
-
-func FindRoomClientSet(id *AppRoomID) ClientSet {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	s := NewClientSet()
-
-	for c := range(clients) {
-		if c.ContainAppRoomID(id) {
-			s.Add(c)
-		}
-	}
-	return s
-}
-
-type Route struct {
-	appid     int64
-	mutex     sync.Mutex
-	uids      common.IntSet
-	room_ids  common.IntSet
-}
-
-func NewRoute(appid int64) *Route {
-	r := new(Route)
-	r.appid = appid
-	r.uids = common.NewIntSet()
-	r.room_ids = common.NewIntSet()
-	return r
-}
-
-
-func (route *Route) IsIntersect(s common.IntSet) bool {
-	route.mutex.Lock()
-	defer route.mutex.Unlock()
-	
-	for uid := range(route.uids) {
-		if s.IsMember(uid) {
-			return true
-		}
-	}
-	return false
-}
-
-func (route *Route) ContainUserID(uid int64) bool {
-	route.mutex.Lock()
-	defer route.mutex.Unlock()
-	
-	return route.uids.IsMember(uid)
-}
-
-func (route *Route) AddUserID(uid int64) {
-	route.mutex.Lock()
-	defer route.mutex.Unlock()
-
-	route.uids.Add(uid)
-}
-
-func (route *Route) RemoveUserID(uid int64) {
-	route.mutex.Lock()
-	defer route.mutex.Unlock()
-
-	route.uids.Remove(uid)
-}
-
-func (route *Route) ContainRoomID(room_id int64) bool {
-	route.mutex.Lock()
-	defer route.mutex.Unlock()
-	
-	return route.room_ids.IsMember(room_id)
-}
-
-func (route *Route) AddRoomID(room_id int64) {
-	route.mutex.Lock()
-	defer route.mutex.Unlock()
-
-	route.room_ids.Add(room_id)
-}
-
-func (route *Route) RemoveRoomID(room_id int64) {
-	route.mutex.Lock()
-	defer route.mutex.Unlock()
-
-	route.room_ids.Remove(room_id)
-}
-
+var clients map[string]*Client
+var clients_mutex sync.Mutex
 
 type Client struct {
 	wt     chan *Message
 	
+	serverId string
 	conn   *net.TCPConn
-	app_route *AppRoute
 }
 
 func NewClient(conn *net.TCPConn) *Client {
 	client := new(Client)
 	client.conn = conn 
 	client.wt = make(chan *Message, 10)
-	client.app_route = NewAppRoute()
 	return client
 }
 
-func (client *Client) ContainAppUserID(id *AppUserID) bool {
-	route := client.app_route.FindRoute(id.appid)
-	if route == nil {
-		return false
-	}
-
-	return route.ContainUserID(id.uid)
-}
-
-
-func (client *Client) ContainAppRoomID(id *AppRoomID) bool {
-	route := client.app_route.FindRoute(id.appid)
-	if route == nil {
-		return false
-	}
-
-	return route.ContainRoomID(id.room_id)
-}
-
 func (client *Client) Read() {
-	AddClient(client)
 	for {
 		msg := client.read()
 		if msg == nil {
-			RemoveClient(client)
 			client.wt <- nil
 			break
 		}
@@ -204,35 +64,18 @@ func (client *Client) Read() {
 func (client *Client) HandleMessage(msg *Message) {
 	log.Info("msg cmd:", Command(msg.cmd))
 	switch msg.cmd {
-	case MSG_SUBSCRIBE:
-		client.HandleSubscribe(msg.body.(*AppUserID))
-	case MSG_UNSUBSCRIBE:
-		client.HandleUnsubscribe(msg.body.(*AppUserID))
+	case MSG_SERVER_REGISTER:
+		client.HandleRegister(msg.body.(*ServerID))
 	case MSG_PUBLISH:
 		client.HandlePublish(msg.body.(*AppMessage))
-	case MSG_SUBSCRIBE_ROOM:
-		client.HandleSubscribeRoom(msg.body.(*AppRoomID))
-	case MSG_UNSUBSCRIBE_ROOM:
-		client.HandleUnsubscribeRoom(msg.body.(*AppRoomID))
+	case MSG_PUBLISH_GROUP:
+		client.HandlePublishGroup(msg.body.(*AppMessage))
 	case MSG_PUBLISH_ROOM:
 		client.HandlePublishRoom(msg.body.(*AppMessage))
 	default:
 		log.Warning("unknown message cmd:", msg.cmd)
 	}
 }
-
-func (client *Client) HandleSubscribe(id *AppUserID) {
-	log.Infof("subscribe appid:%d uid:%d", id.appid, id.uid)
-	route := client.app_route.FindOrAddRoute(id.appid)
-	route.AddUserID(id.uid)
-}
-
-func (client *Client) HandleUnsubscribe(id *AppUserID) {
-	log.Infof("unsubscribe appid:%d uid:%d", id.appid, id.uid)
-	route := client.app_route.FindOrAddRoute(id.appid)
-	route.RemoveUserID(id.uid)
-}
-
 
 const VOIP_COMMAND_DIAL = 1
 const VOIP_COMMAND_DIAL_VIDEO = 9
@@ -264,95 +107,122 @@ func (client *Client) IsROMApp(appid int64) bool {
 	return false
 }
 
-func (client *Client) PublishMessage(appid int64, ctl *VOIPControl) {
-	//首次拨号时发送apns通知
-	count := client.GetDialCount(ctl)
-	if count != 1 {
+func (client *Client) HandleRegister(id *ServerID) {
+	clients_mutex.Lock()
+	defer clients_mutex.Unlock()
+	
+	if _, ok := clients[id.serverid]; ok {
 		return
 	}
-
-	log.Infof("publish invite notification sender:%d receiver:%d", ctl.sender, ctl.receiver)
-	conn := redis_pool.Get()
-	defer conn.Close()
-
-	v := make(map[string]interface{})
-	v["sender"] = ctl.sender
-	v["receiver"] = ctl.receiver
-	v["appid"] = appid
-	b, _ := json.Marshal(v)
-
-	var queue_name string
-	if client.IsROMApp(appid) {
-		queue_name = fmt.Sprintf("voip_push_queue_%d", appid)
-	} else {
-		queue_name = "voip_push_queue"
-	}
-
-	_, err := conn.Do("RPUSH", queue_name, b)
-	if err != nil {
-		log.Info("error:", err)
-	}
+	
+	client.serverId = id.serverid
+	clients[id.serverid] = client
 }
 
 
 func (client *Client) HandlePublish(amsg *AppMessage) {
 	log.Infof("publish message appid:%d uid:%d msgid:%d cmd:%s", amsg.appid, amsg.receiver, amsg.msgid, Command(amsg.msg.cmd))
-	receiver := &AppUserID{appid:amsg.appid, uid:amsg.receiver}
-	s := FindClientSet(receiver)
+	receiver := amsg.receiver
+	
+	servers := GetUserServers(receiver)
 
-	if len(s) == 0 {
-		//用户不在线,推送消息到终端
-		if amsg.msg.cmd == MSG_VOIP_CONTROL {
-			ctrl := amsg.msg.body.(*VOIPControl)
-			client.PublishMessage(amsg.appid, ctrl)
-		}
+	if servers == nil || len(servers) == 0 {
+		//用户不在线,推送消息到终端, 苹果apns
+		return
 	}
 
 	msg := &Message{cmd:MSG_PUBLISH, body:amsg}
-	for c := range(s) {
-		//不发送给自身
-		if client == c {
-			continue
+	
+	clients_mutex.Lock()
+	defer clients_mutex.Unlock()
+	
+	for _, serverId := range servers {
+		if c, ok := clients[serverId]; ok {
+			c.wt <- msg
 		}
-		c.wt <- msg
 	}
-}
-
-func (client *Client) HandleSubscribeRoom(id *AppRoomID) {
-	log.Infof("subscribe appid:%d room id:%d", id.appid, id.room_id)
-	route := client.app_route.FindOrAddRoute(id.appid)
-	route.AddRoomID(id.room_id)
-}
-
-func (client *Client) HandleUnsubscribeRoom(id *AppRoomID) {
-	log.Infof("unsubscribe appid:%d room id:%d", id.appid, id.room_id)
-	route := client.app_route.FindOrAddRoute(id.appid)
-	route.RemoveRoomID(id.room_id)
 }
 
 func (client *Client) HandlePublishRoom(amsg *AppMessage) {
 	log.Infof("publish room message appid:%d room id:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
-	receiver := &AppRoomID{appid:amsg.appid, room_id:amsg.receiver}
-	s := FindRoomClientSet(receiver)
-
-	msg := &Message{cmd:MSG_PUBLISH_ROOM, body:amsg}
-	for c := range(s) {
-		//不发送给自身
-		if client == c {
-			continue
+	receiver := amsg.receiver
+	
+	members := OpGetRoomMembers(receiver)
+	
+	for _, member := range members {		
+		servers := GetUserServers(member)
+		
+		if servers == nil || len(servers) == 0 {
+			return
 		}
-		log.Info("publish room message")
-		c.wt <- msg
+	
+		amsg1 := &AppMessage{
+			appid : amsg.appid,
+			receiver : member,
+			msgid : amsg.msgid,
+			device_id : amsg.device_id,
+			msg : amsg.msg,
+		}
+		msg := &Message{cmd:MSG_PUBLISH_ROOM, body: amsg1}
+		
+		clients_mutex.Lock()
+		defer clients_mutex.Unlock()
+		
+		for _, serverId := range servers {
+			if c, ok := clients[serverId]; ok {
+				c.wt <- msg
+			}
+		}
 	}
 }
 
+func (client *Client) HandlePublishGroup(amsg *AppMessage) {
+	log.Infof("publish group message appid:%d group id:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
+	receiver := amsg.receiver
 
+	members := OpGetGroupMembers(receiver)
+	
+	for _, member := range members {		
+		servers := GetUserServers(member)
+		
+		if servers == nil || len(servers) == 0 {
+			//用户不在线,推送消息到终端, 苹果apns
+			return
+		}
+	
+		amsg1 := &AppMessage{
+			appid : amsg.appid,
+			receiver : member,
+			msgid : amsg.msgid,
+			device_id : amsg.device_id,
+			msg : amsg.msg,
+		}
+		msg := &Message{cmd:MSG_PUBLISH_GROUP, body: amsg1}
+		
+		clients_mutex.Lock()
+		defer clients_mutex.Unlock()
+		
+		for _, serverId := range servers {
+			if c, ok := clients[serverId]; ok {
+				c.wt <- msg
+			}
+		}
+	}
+}
+
+func RemoveClient(serverId string) {
+	clients_mutex.Lock()
+	defer clients_mutex.Unlock()
+	
+	delete(clients, serverId)
+}
 
 func (client *Client) Write() {
 	seq := 0
 	for {
 		msg := <-client.wt
 		if msg == nil {
+			RemoveClient(client.serverId)
 			client.close()
 			log.Infof("client socket closed")
 			break
@@ -446,6 +316,8 @@ func main() {
 	log.Infof("listen:%s redis:%s\n", config.listen, config.redis_address)
 
 	redis_pool = NewRedisPool(config.redis_address, config.redis_password)
+	
+	clients = make(map[string]*Client)
 
 	ListenClient()
 }
