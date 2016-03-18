@@ -250,14 +250,14 @@ func (message *IMMessage) ToDataV0() []byte {
 }
 
 func (im *IMMessage) FromDataV0(buff []byte) bool {
-	if len(buff) < 20 {
+	if len(buff) < 24 {
 		return false
 	}
 	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &im.sender)
 	binary.Read(buffer, binary.BigEndian, &im.receiver)
 	binary.Read(buffer, binary.BigEndian, &im.msgid)
-	im.content = string(buff[20:])
+	im.content = string(buff[24:])
 	return true
 }
 

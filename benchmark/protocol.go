@@ -67,6 +67,10 @@ const MSG_UNREAD_COUNT = 22
 //persistent
 const MSG_CUSTOMER_SERVICE = 23
 
+//透传消息
+const MSG_TRANSMIT_USER = 24
+const MSG_TRANSMIT_GROUP = 25
+
 const MSG_VOIP_CONTROL = 64
 
 //平台号
@@ -109,6 +113,8 @@ func init() {
 
 	vmessage_creators[MSG_GROUP_IM] = func() IVersionMessage { return new(IMMessage) }
 	vmessage_creators[MSG_IM] = func() IVersionMessage { return new(IMMessage) }
+	vmessage_creators[MSG_TRANSMIT_USER] = func() IVersionMessage { return new(IMMessage) }
+	vmessage_creators[MSG_TRANSMIT_GROUP] = func() IVersionMessage { return new(IMMessage) }
 
 	vmessage_creators[MSG_AUTH_STATUS] = func() IVersionMessage { return new(AuthenticationStatus) }
 
@@ -134,6 +140,8 @@ func init() {
 	message_descriptions[MSG_UNREAD_COUNT] = "MSG_UNREAD_COUNT"
 	message_descriptions[MSG_CUSTOMER_SERVICE] = "MSG_CUSTOMER_SERVICE"
 	message_descriptions[MSG_VOIP_CONTROL] = "MSG_VOIP_CONTROL"
+	message_descriptions[MSG_TRANSMIT_USER] = "MSG_TRANSMIT_USER"
+	message_descriptions[MSG_TRANSMIT_GROUP] = "MSG_TRANSMIT_GROUP"
 }
 
 type Command int
@@ -227,7 +235,7 @@ type IMMessage struct {
 	sender    int64
 	receiver  int64
 	timestamp int32
-	msgid     int32
+	msgid     int64
 	content   string
 }
 
@@ -242,14 +250,14 @@ func (message *IMMessage) ToDataV0() []byte {
 }
 
 func (im *IMMessage) FromDataV0(buff []byte) bool {
-	if len(buff) < 20 {
+	if len(buff) < 24 {
 		return false
 	}
 	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &im.sender)
 	binary.Read(buffer, binary.BigEndian, &im.receiver)
 	binary.Read(buffer, binary.BigEndian, &im.msgid)
-	im.content = string(buff[20:])
+	im.content = string(buff[24:])
 	return true
 }
 
@@ -265,7 +273,7 @@ func (message *IMMessage) ToDataV1() []byte {
 }
 
 func (im *IMMessage) FromDataV1(buff []byte) bool {
-	if len(buff) < 24 {
+	if len(buff) < 28 {
 		return false
 	}
 	buffer := bytes.NewBuffer(buff)
@@ -273,7 +281,7 @@ func (im *IMMessage) FromDataV1(buff []byte) bool {
 	binary.Read(buffer, binary.BigEndian, &im.receiver)
 	binary.Read(buffer, binary.BigEndian, &im.timestamp)
 	binary.Read(buffer, binary.BigEndian, &im.msgid)
-	im.content = string(buff[24:])
+	im.content = string(buff[28:])
 	return true
 }
 
@@ -442,7 +450,7 @@ func (ack *MessageACK) FromData(buff []byte) bool {
 type MessagePeerACK struct {
 	sender   int64
 	receiver int64
-	msgid    int32
+	msgid    int64
 }
 
 func (ack *MessagePeerACK) ToData() []byte {
@@ -455,7 +463,7 @@ func (ack *MessagePeerACK) ToData() []byte {
 }
 
 func (ack *MessagePeerACK) FromData(buff []byte) bool {
-	if len(buff) < 20 {
+	if len(buff) < 24 {
 		return false
 	}
 	buffer := bytes.NewBuffer(buff)
@@ -749,27 +757,30 @@ func (id *AppGroupMemberID) FromData(buff []byte) bool {
 	return true
 }
 
-func WriteHeader(len int32, seq int32, cmd byte, version byte, buffer io.Writer) {
+func WriteHeader(len int32, seq int32, cmd int32, version byte, buffer io.Writer) {
 	binary.Write(buffer, binary.BigEndian, len)
 	binary.Write(buffer, binary.BigEndian, seq)
-	t := []byte{cmd, byte(version), 0, 0}
+	binary.Write(buffer, binary.BigEndian, cmd)
+	t := []byte{byte(version), 0, 0, 0}
 	buffer.Write(t)
 }
 
 func ReadHeader(buff []byte) (int, int, int, int) {
 	var length int32
 	var seq int32
+	var cmd int32
 	buffer := bytes.NewBuffer(buff)
 	binary.Read(buffer, binary.BigEndian, &length)
 	binary.Read(buffer, binary.BigEndian, &seq)
-	cmd, _ := buffer.ReadByte()
+	binary.Read(buffer, binary.BigEndian, &cmd)
 	version, _ := buffer.ReadByte()
 	return int(length), int(seq), int(cmd), int(version)
 }
 
+//写入message
 func WriteMessage(w *bytes.Buffer, msg *Message) {
 	body := msg.ToData()
-	WriteHeader(int32(len(body)), int32(msg.seq), byte(msg.cmd), byte(msg.version), w)
+	WriteHeader(int32(len(body)), int32(msg.seq), int32(msg.cmd), byte(msg.version), w)
 	w.Write(body)
 }
 
@@ -790,7 +801,7 @@ func SendMessage(conn io.Writer, msg *Message) error {
 }
 
 func ReceiveMessage(conn io.Reader) *Message {
-	buff := make([]byte, 12)
+	buff := make([]byte, 16)
 	_, err := io.ReadFull(conn, buff)
 	if err != nil {
 		log.Info("sock read error:", err)
@@ -798,6 +809,7 @@ func ReceiveMessage(conn io.Reader) *Message {
 	}
 
 	length, seq, cmd, version := ReadHeader(buff)
+	log.Infof("ReceiveMessage: length=%d, seq=%d, cmd=%d, version=%d", length, seq, cmd, version)
 	if length < 0 || length >= 32*1024 {
 		log.Info("invalid len:", length)
 		return nil

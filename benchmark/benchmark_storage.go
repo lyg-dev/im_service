@@ -80,6 +80,7 @@ func benchmark() {
 		sae.msg = m
 		sae.appid = appid
 		sae.receiver = 2
+		sae.device_id = 1
 
 		_, err := storage.SaveAndEnqueueMessage(sae)
 		if err != nil {
