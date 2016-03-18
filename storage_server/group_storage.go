@@ -66,11 +66,7 @@ func (storage *GroupStorage) saveMessage(msg *Message) int64 {
 	}
 	
 	condition := OTSCondition_EXPECT_NOT_EXIST
-	_, err = storage.ots2_client.PutRow("msg_group", condition, primaryKey, attributeColumns)
-	if err != nil {
-		log.Infoln(err)
-		return 0
-	}
+	storage.ots2_client.PutRow("msg_group", condition, primaryKey, attributeColumns)
 	
 	return msgid
 }
@@ -95,10 +91,7 @@ func (storage *GroupStorage) setLastGroupMessageID(appid int64, gid int64, msgid
 	}
 	
 	condition := OTSCondition_IGNORE
-	_, err := storage.ots2_client.PutRow("msg_group_last_id", condition, primaryKey, attributeColumns)
-	if err != nil {
-		log.Infoln(err)
-	}
+	storage.ots2_client.PutRow("msg_group_last_id", condition, primaryKey, attributeColumns)
 }
 
 func (storage *GroupStorage) SetLastGroupMessageID(appid int64, gid int64, msgid int64) {
@@ -151,10 +144,7 @@ func (storage *GroupStorage) setLastGroupReceivedID(appid int64, gid int64, uid 
 	}
 	
 	condition := OTSCondition_IGNORE
-	_, err := storage.ots2_client.PutRow("msg_group_user_last_recv_id", condition, primaryKey, attributeColumns)
-	if err != nil {
-		log.Infoln(err)
-	}
+	storage.ots2_client.PutRow("msg_group_user_last_recv_id", condition, primaryKey, attributeColumns)
 }
 
 func (storage *GroupStorage) SetLastGroupReceivedID(appid int64, gid int64, uid int64, device_id int64, msgid int64) {
