@@ -157,6 +157,15 @@ func (client *Client) HandleSaveAndEnqueue(sae *SAEMessage) {
 	t := make(chan int64)
 	f := func() {
 		msgid := storage.SavePeerMessage(appid, uid, sae.device_id, sae.msg)
+		
+		result := &MessageResult{}
+		result.status = 0
+		buffer := new(bytes.Buffer)
+		binary.Write(buffer, binary.BigEndian, msgid)
+		result.content = buffer.Bytes()
+		msg := &Message{cmd: MSG_RESULT, body: result}
+		log.Infoln(msg)
+		SendMessage(client.conn, msg)
 
 		am := &AppMessage{appid: appid, receiver: uid, msgid: msgid, device_id: sae.device_id, msg: sae.msg}
 		m := &Message{cmd: MSG_PUBLISH, body: am}
@@ -168,14 +177,7 @@ func (client *Client) HandleSaveAndEnqueue(sae *SAEMessage) {
 	c := GetUserChan(uid)
 	c <- f
 	msgid := <-t
-
-	result := &MessageResult{}
-	result.status = 0
-	buffer := new(bytes.Buffer)
-	binary.Write(buffer, binary.BigEndian, msgid)
-	result.content = buffer.Bytes()
-	msg := &Message{cmd: MSG_RESULT, body: result}
-	SendMessage(client.conn, msg)
+	log.Infoln(msgid)
 }
 
 func (client *Client) HandleDQMessage(dq *DQMessage) {

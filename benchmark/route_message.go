@@ -18,7 +18,9 @@
  */
 
 package main
-import "bytes"
+import (
+	"bytes"
+)
 import "encoding/binary"
 
 //路由服务器消息

@@ -70,11 +70,7 @@ func (storage *PeerStorage) saveMessage(msg *Message) int64 {
 	}
 	
 	condition := OTSCondition_EXPECT_NOT_EXIST
-	_, err = storage.ots2_client.PutRow("msg_user", condition, primaryKey, attributeColumns)
-	if err != nil {
-		log.Infoln(err)
-		return 0
-	}
+	storage.ots2_client.PutRow("msg_user", condition, primaryKey, attributeColumns)
 	
 	return msgid
 }
@@ -132,10 +128,7 @@ func (storage *PeerStorage) setLastMessageID(appid int64, receiver int64, msgid 
 	}
 	
 	condition := OTSCondition_IGNORE
-	_, err := storage.ots2_client.PutRow("msg_user_last_id", condition, primaryKey, attributeColumns)
-	if err != nil {
-		log.Infoln(err)
-	}
+	storage.ots2_client.PutRow("msg_user_last_id", condition, primaryKey, attributeColumns)
 }
 
 //设置最新消息ID
@@ -157,10 +150,7 @@ func (storage *PeerStorage) setLastReceivedID(appid int64, uid int64, did int64,
 	}
 	
 	condition := OTSCondition_IGNORE
-	_, err := storage.ots2_client.PutRow("msg_user_last_recv_id", condition, primaryKey, attributeColumns)
-	if err != nil {
-		log.Infoln(err)
-	}
+	storage.ots2_client.PutRow("msg_user_last_recv_id", condition, primaryKey, attributeColumns)
 }
 
 //设置最后一条已接收的msgid

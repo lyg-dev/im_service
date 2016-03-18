@@ -19,7 +19,9 @@
 
 package main
 
-import "errors"
+import (
+	"errors"
+)
 import "net"
 import "bytes"
 import "time"

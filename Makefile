@@ -22,7 +22,7 @@ benchmark_sender:benchmark_sender.go protocol.go
 	go build benchmark_sender.go protocol.go
 
 benchmark_storage:benchmark_storage.go storage_client.go protocol.go storage_message.go
-	go build -o benchmark_storage benchmark_storage.go storage_client.go protocol.go storage_message.go
+	go build -o benchmark_storage benchmark_storage.go storage_client.go protocol.go storage_message.go route_message.go
 
 benchmark_route:benchmark_route.go channel.go protocol.go route_message.go
 	go build -o benchmark_route benchmark_route.go channel.go protocol.go route_message.go

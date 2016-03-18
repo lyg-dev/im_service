@@ -82,12 +82,14 @@ func benchmark() {
 		sae.receiver = 2
 		sae.device_id = 1
 
-		_, err := storage.SaveAndEnqueueMessage(sae)
+		msgid, err := storage.SaveAndEnqueueMessage(sae)
 		if err != nil {
 			log.Println("saveandequeue message err:", err)
 			return
 		}
-		//log.Println("msgid:", msgid)
+		log.Println("msgid:", msgid)
+		r := ReceiveMessage(storage.conn)
+		fmt.Printf("%v", r)
 	}
 
 	c <- true
