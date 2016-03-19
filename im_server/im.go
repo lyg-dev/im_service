@@ -26,6 +26,8 @@ import "runtime"
 import "github.com/garyburd/redigo/redis"
 import log "github.com/golang/glog"
 
+var server_id string
+
 //group storage server
 var storage_channels []*StorageChannel
 
@@ -35,21 +37,15 @@ var route_channels []*Channel
 //storage server
 var channels []*Channel
 
-var group_center *GroupCenter
-
-var app_route *AppRoute
-var group_manager *GroupManager
-var user_manager *UserManager
+var route *Route
 var redis_pool *redis.Pool
 var storage_pools []*StorageConnPool
 var config *Config
 var server_summary *ServerSummary
-var customer_service *CustomerService
 
 func init() {
-	app_route = NewAppRoute()
+	route = NewRoute()
 	server_summary = NewServerSummary()
-	group_center = NewGroupCenter()
 }
 
 func handle_client(conn net.Conn) {
@@ -174,11 +170,6 @@ func SendAppMessage(amsg *AppMessage, uid int64) bool {
 	channel := GetChannel(uid)
 	channel.Publish(amsg)
 
-	route := app_route.FindRoute(amsg.appid)
-	if route == nil {
-		log.Warningf("can't dispatch app message, appid:%d uid:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
-		return false
-	}
 	clients := route.FindClientSet(uid)
 	if len(clients) == 0 {
 		log.Warningf("can't dispatch app message, appid:%d uid:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
@@ -199,11 +190,6 @@ func SendAppMessage(amsg *AppMessage, uid int64) bool {
 func DispatchAppMessage(amsg *AppMessage) {
 	log.Info("dispatch app message:", Command(amsg.msg.cmd))
 
-	route := app_route.FindRoute(amsg.appid)
-	if route == nil {
-		log.Warningf("can't dispatch app message, appid:%d uid:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
-		return
-	}
 	clients := route.FindClientSet(amsg.receiver)
 	if len(clients) == 0 {
 		log.Warningf("can't dispatch app message, appid:%d uid:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
@@ -235,7 +221,6 @@ func DispatchAppMessage(amsg *AppMessage) {
 func DispatchRoomMessage(amsg *AppMessage) {
 	log.Info("dispatch room message", Command(amsg.msg.cmd))
 	room_id := amsg.receiver
-	route := app_route.FindOrAddRoute(amsg.appid)
 	clients := route.FindRoomClientSet(room_id)
 
 	if len(clients) == 0 {
@@ -249,20 +234,14 @@ func DispatchRoomMessage(amsg *AppMessage) {
 
 func DispatchGroupMessage(amsg *AppMessage) {
 	log.Info("dispatch group message:", Command(amsg.msg.cmd))
-	group := group_manager.FindGroup(amsg.receiver)
+	group := OpGetGroup(amsg.receiver)
 	if group == nil {
 		log.Warningf("can't dispatch group message, appid:%d group id:%d", amsg.appid, amsg.receiver)
 		return
 	}
 
-	route := app_route.FindRoute(amsg.appid)
-	if route == nil {
-		log.Warningf("can't dispatch app message, appid:%d uid:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
-		return
-	}
-
-	members := group.Members()
-	for member := range members {
+	members := OpGetGroupMembers(group.gid)
+	for _, member := range members {
 	    clients := route.FindClientSet(member)
 		if len(clients) == 0 {
 			continue
@@ -297,15 +276,6 @@ func DialStorageFun(addr string) func()(*StorageConn, error) {
 	return f
 }
 
-type IMGroupObserver int
-func (ob IMGroupObserver) OnGroupMemberAdd(group *Group, uid int64) {
-	group_center.SubscribeGroupMember(group.appid, group.gid, uid)
-}
-
-func (ob IMGroupObserver) OnGroupMemberRemove(group *Group, uid int64) {
-	group_center.UnsubscribeGroupMember(group.appid, group.gid, uid)
-}
-
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
@@ -315,14 +285,14 @@ func main() {
 	}
 
 	config = read_cfg(flag.Args()[0])
+	
+	server_id = config.server_id
+	
 	log.Infof("port:%d redis address:%s\n",
 		config.port,  config.redis_address)
 
 	log.Info("storage addresses:", config.storage_addrs)
 	log.Info("route addressed:", config.route_addrs)
-	
-	customer_service = NewCustomerService()
-	customer_service.Start()
 
 	redis_pool = NewRedisPool(config.redis_address, config.redis_password)
 
@@ -354,15 +324,6 @@ func main() {
 		channel.Start()
 		route_channels = append(route_channels, channel)
 	}
-	
-	group_manager = NewGroupManager()
-	group_manager.observer = IMGroupObserver(0)
-	group_manager.Start()
-	
-	user_manager = NewUserManager()
-	user_manager.Start()
-
-	StartHttpServer(config.http_listen_address)
 
 	go StartSocketIO(config.socket_io_address)
 	ListenClient()

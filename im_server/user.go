@@ -30,7 +30,179 @@ import "encoding/json"
 import "im_service/common"
 import "strconv"
 
-func LoadUserAccessToken(token string) (int64, int64, string, error) {
+func OpGetUserGroups(uid int64) []int64 {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	gids := make([]int64, 0, 4)
+	key := fmt.Sprintf("user_groups_%d", uid)
+	groups, err := redis.Ints(conn.Do("SMEMBERS", key))
+	if err != nil {
+		return gids
+	}
+	
+	for _, gid := range groups {
+		gids = append(gids, int64(gid))
+	}
+	
+	return gids
+}
+
+func OpRemoveUserFriend(db *sql.DB, uid int64, fid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	if !FriendRemove(db, uid, fid) {
+		return false
+	}
+	
+	key := fmt.Sprintf("user_friends_%d", uid)
+	_, err := conn.Do("SREM", key, fid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	key = fmt.Sprintf("user_friends_%d", fid)
+	_, err = conn.Do("SREM", key, uid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	return true
+}
+
+func OpAddUserFriend(db *sql.DB, uid int64, fid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	if !FriendAdd(db, uid, fid) {
+		return false
+	}
+	
+	key := fmt.Sprintf("user_friends_%d", uid)
+	_, err := conn.Do("SADD", key, fid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	key = fmt.Sprintf("user_friends_%d", fid)
+	_, err = conn.Do("SADD", key, uid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	return true
+}
+
+func OpAddUserBlack(db *sql.DB, uid int64, bid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	if !BlackAdd(db, uid, bid) {
+		return false
+	}
+	
+	key := fmt.Sprintf("user_blacks_%d", uid)
+	_, err := conn.Do("SADD", key, bid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	return true
+}
+
+func OpRemoveUserBlack(db *sql.DB, uid int64, bid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	if !BlackRemove(db, uid, bid) {
+		return false
+	}
+	
+	key := fmt.Sprintf("user_blacks_%d", uid)
+	_, err := conn.Do("SREM", key, bid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	return true
+}
+
+func OpIsUserBlack(uid int64, bid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("user_blacks_%d", uid)
+	isBlack, err := redis.Bool(conn.Do("SISMEMBER", key, bid))
+	if err != nil {
+		log.Infoln(err)
+		return false
+	}
+	
+	return isBlack
+}
+
+func OpIsUserFriend(uid int64, fid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("user_friends_%d", uid)
+	isFriend, err := redis.Bool(conn.Do("SISMEMBER", key, fid))
+	if err != nil {
+		log.Infoln(err)
+		return false
+	}
+	
+	return isFriend
+}
+
+func OpAddUserLoginPoint(uid int64, platform_id int8, device_id string) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("user_loginpoints_%d", uid)
+	v := fmt.Sprintf("%d_%s", platform_id, device_id)
+	_, err := conn.Do("SADD", key, v)
+	if err != nil {
+		log.Infoln(err)
+	}
+}
+
+func OpRemoveUserLoginPoint(uid int64, platform_id int8, device_id string) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("user_loginpoints_%d", uid)
+	v := fmt.Sprintf("%d_%s", platform_id, device_id)
+	_, err := conn.Do("SREM", key, v)
+	if err != nil {
+		log.Infoln(err)
+	}
+}
+
+func OpAddUserServer(uid int64, serverId string) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("user_servers_%d", uid)
+	_, err := conn.Do("SADD", key, serverId)
+	if err != nil {
+		log.Infoln(err)
+	}
+}
+
+func OpRemoveUserServer(uid int64, serverId string) {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("user_servers_%d", uid)
+	_, err := conn.Do("SREM", key, serverId)
+	if err != nil {
+		log.Infoln(err)
+	}
+}
+
+func OpLoadUserAccessToken(token string) (int64, int64, string, error) {
 	conn := redis_pool.Get()
 	defer conn.Close()
 
@@ -92,7 +264,7 @@ func LoadUserInfoByAccessToken(token string) (int64, int64, string, error) {
 	return 1, id, uname, nil
 }
 
-func HasUserInfoById(db *sql.DB, id int64) bool {	
+func OpHasUserInfoById(db *sql.DB, id int64) bool {	
 	stmt, err := db.Prepare("SELECT id, username FROM user_app WHERE id=?")
 	if err != nil {
 		log.Info("error:", err)
@@ -392,16 +564,5 @@ func CountDAU(appid int64, uid int64) {
 	_, err := conn.Do("PFADD", key, uid)
 	if err != nil {
 		log.Info("pfadd err:", err)
-	}
-}
-
-func SetUserUnreadCount(appid int64, uid int64, count int32) {
-	conn := redis_pool.Get()
-	defer conn.Close()
-
-	key := fmt.Sprintf("users_%d_%d", appid, uid)
-	_, err := conn.Do("HSET", key, "unread", count)
-	if err != nil {
-		log.Info("hset err:", err)
 	}
 }

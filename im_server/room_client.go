@@ -35,9 +35,7 @@ func (client *RoomClient) Logout(route *Route) {
 	
 	for room_id, _ := range client.room_ids {
 		route.RemoveRoomClient(room_id, client.Client())
-		channel := GetRoomChannel(room_id)
-		channel.UnsubscribeRoom(client.appid, room_id)
-		
+		OpRemoveRoomMember(room_id, client.uid)
 		delete(client.room_ids, room_id)
 	}
 }
@@ -73,13 +71,11 @@ func (client *RoomClient) HandleEnterRoom(room *Room){
 	if _, ok := client.room_ids[room_id]; ok {
 		return
 	}
-	
-	route := app_route.FindOrAddRoute(client.appid)
 
 	client.room_ids[room_id] = struct{}{}
 	route.AddRoomClient(room_id, client.Client())
-	channel := GetRoomChannel(room_id)
-	channel.SubscribeRoom(client.appid, room_id)
+	
+	OpAddRoomMember(room_id, client.uid)
 }
 
 func (client *RoomClient) Client() *Client {
@@ -105,10 +101,10 @@ func (client *RoomClient) HandleLeaveRoom(room *Room) {
 		return
 	}
 
-	route := app_route.FindOrAddRoute(client.appid)
 	route.RemoveRoomClient(room_id, client.Client())
-	channel := GetRoomChannel(room_id)
-	channel.UnsubscribeRoom(client.appid, room_id)
+	
+	OpRemoveRoomMember(room_id, client.uid)
+	
 	delete(client.room_ids, room_id)
 }
 
@@ -124,14 +120,6 @@ func (client *RoomClient) HandleRoomIM(room_im *RoomMessage, seq int) {
 	}
 
 	m := &Message{cmd:MSG_ROOM_IM, body:room_im}
-	route := app_route.FindOrAddRoute(client.appid)
-	clients := route.FindRoomClientSet(room_id)
-	for c, _ := range(clients) {
-		if c == client.Client() {
-			continue
-		}
-		c.wt <- m
-	}
 
 	amsg := &AppMessage{appid:client.appid, receiver:room_id, msg:m}
 	channel := GetRoomChannel(room_id)
@@ -152,14 +140,6 @@ func (client *RoomClient) HandleTransmitRoom(room_im *RoomMessage, seq int) {
 	}
 
 	m := &Message{cmd:MSG_TRANSMIT_ROOM, body:room_im}
-	route := app_route.FindOrAddRoute(client.appid)
-	clients := route.FindRoomClientSet(room_id)
-	for c, _ := range(clients) {
-		if c == client.Client() {
-			continue
-		}
-		c.wt <- m
-	}
 
 	amsg := &AppMessage{appid:client.appid, receiver:room_id, msg:m}
 	channel := GetRoomChannel(room_id)

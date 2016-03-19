@@ -21,92 +21,251 @@ package main
 
 import (
 	"time"
-	"sync"
 	"fmt"
 )
 import "database/sql"
 import _ "github.com/go-sql-driver/mysql"
 import log "github.com/golang/glog"
-import "im_service/common"
+import "github.com/garyburd/redigo/redis"
 
 type Group struct {
 	gid     int64
-	appid   int64
-	super   bool //超大群
-	is_private bool
-	is_allow_invite bool
+	is_private int
+	is_allow_invite int
 	title	string
 	desc	string
 	owner int64
-	mutex   sync.Mutex
-	members common.IntSet
+	gouhao int
 }
 
-func NewGroup(gid int64, appid int64, members []int64, is_private bool, is_allow_invite bool, title string, desc string, owner int64) *Group {
-	group := new(Group)
-	group.appid = appid
-	group.gid = gid
-	group.super = false
-	group.is_private = is_private
-	group.is_allow_invite = is_allow_invite
-	group.title = title
-	group.desc = desc
-	group.owner = owner
-	group.members = common.NewIntSet()
-	group.members.Add(group.owner)
-	for _, m := range members {
-		group.members.Add(m)
+
+func OpCreateGroup(db *sql.DB, gid int64, title string, desc string, is_private int, is_allow_invite int, owner int64, gouhao int) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	if !CreateGroup(db, gid, title, desc, is_private, is_allow_invite, owner, gouhao) {
+		return false
 	}
-	return group
-}
-
-func NewSuperGroup(gid int64, appid int64, members []int64, is_private bool, is_allow_invite bool, title string, desc string, owner int64) *Group {
-	group := new(Group)
-	group.appid = appid
-	group.gid = gid
-	group.super = true
-	group.is_private = is_private
-	group.is_allow_invite = is_allow_invite
-	group.title = title
-	group.desc = desc
-	group.owner = owner
-	group.members = common.NewIntSet()
-	group.members.Add(group.owner)
-	for _, m := range members {
-		group.members.Add(m)
+	
+	key := fmt.Sprintf("group_%d", gid)
+	_, err := conn.Do("HMSET", key, "title", title, "desc", desc, "is_private", is_private, "is_allow_invite", is_allow_invite, "owner", owner, "gouhao", gouhao)
+	if err != nil {
+		log.Infoln(err)
+		return false
 	}
-	return group
+	
+	return true
 }
 
+func OpGetGroup(gid int64) *Group{
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("group_%d", gid)
+	reply, err := redis.Values(conn.Do("HMGET", key, "title", "desc", "is_private", "is_allow_invite", "owner", "gouhao"))
+	if err != nil {
+		log.Info("hmget error:", err)
+		return nil
+	}
 
-func (group *Group) Members() common.IntSet {
-	return group.members
+	var title string
+	var desc string
+	var is_private int
+	var is_allow_invite int
+	var owner int64
+	var gouhao int
+	_, err = redis.Scan(reply, &title, &desc, &is_private, &is_allow_invite, &owner, &gouhao)
+	if err != nil {
+		log.Warning("scan error:", err)
+		return nil
+	}
+	
+	return &Group{
+		gid: gid,
+		title : title,
+		is_private : is_private,
+		is_allow_invite: is_allow_invite,
+		owner: owner,
+		gouhao:gouhao,
+	}
 }
 
-//修改成员，在副本修改，避免读取时的lock
-func (group *Group) AddMember(uid int64) {
-	group.mutex.Lock()
-	defer group.mutex.Unlock()
-	members := group.members.Clone()
-	members.Add(uid)
-	group.members = members
+func OpDelGroup(db *sql.DB, gid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	if !DeleteGroup(db, gid) {
+		return false
+	}
+	
+	key := fmt.Sprintf("group_%d", gid)
+	_, err := conn.Do("DEL", key)
+	if err != nil {
+		log.Warning("del error:", err)
+		return true
+	}
+	
+	key = fmt.Sprintf("group_members_%d", gid)
+	_, err = conn.Do("DEL", key)
+	if err != nil {
+		log.Warning("del error:", err)
+		return true
+	}
+	
+	return true
 }
 
-func (group *Group) RemoveMember(uid int64) {
-	group.mutex.Lock()
-	defer group.mutex.Unlock()
-	members := group.members.Clone()
-	members.Remove(uid)
-	group.members = members
+func OpGetGroupMemberNumber(gid int64) int {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("group_members_%d", gid)
+	number, err := redis.Int(conn.Do("SCARD", key))
+	if err != nil {
+		return 0
+	}
+	
+	return number
 }
 
-func (group *Group) IsMember(uid int64) bool {
-	_, ok := group.members[uid]
-	return ok
+func OpIsGroupMember(gid int64, uid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("group_members_%d", gid)
+	isMember, err := redis.Bool(conn.Do("SISMEMBER", key, uid))
+	if err != nil {
+		return false
+	}
+	
+	return isMember
 }
 
-func (group *Group) IsEmpty() bool {
-	return len(group.members) == 0
+func OpGetGroupMembers(gid int64) []int64 {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	uids := make([]int64, 4, 10)
+	
+	key := fmt.Sprintf("group_members_%d", gid)
+	members, err := redis.Ints(conn.Do("SMEMBERS", key))
+	if err != nil {
+		return uids
+	}
+	
+	if len(members) == 0 {
+		ms, err := LoadGroupMember(gid)
+		if err != nil {
+			return uids
+		}
+		
+		for _, m := range ms {
+			_, err = conn.Do("SADD", key, m)
+			if err != nil {
+				log.Infoln(err)
+			}
+		}
+		
+		return ms
+	}
+	
+	for _, member := range members {
+		uids = append(uids, int64(member))
+	}
+	
+	return uids
+}
+
+func OpGetRoomMembers(gid int64) []int64 {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	uids := make([]int64, 4, 10)
+	key := fmt.Sprintf("room_members_%d", gid)
+	members, err := redis.Ints(conn.Do("SMEMBERS", key))
+	if err != nil {
+		return uids
+	}
+	
+	for _, member := range members {
+		uids = append(uids, int64(member))
+	}
+	
+	return uids
+}
+
+func OpAddRoomMember(gid int64, uid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("room_members_%d", gid)
+	_, err := conn.Do("SADD", key, uid)
+	if err != nil {
+		log.Infoln(err)
+		return false
+	}
+	
+	return true
+}
+
+func OpRemoveRoomMember(gid int64, uid int64) bool {
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("room_members_%d", gid)
+	_, err := conn.Do("SREM", key, uid)
+	if err != nil {
+		log.Infoln(err)
+		return false
+	}
+	
+	return true
+}
+
+func OpAddGroupMember(db *sql.DB, gid int64, uid int64, isOwner int) bool {
+	if !AddGroupMember(db, gid, uid, isOwner) {
+		return false
+	}
+	
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("group_members_%d", gid)
+	_, err := conn.Do("SADD", key, uid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	key = fmt.Sprintf("user_groups_%d", uid)
+	_, err = conn.Do("SADD", key, gid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	return true
+}
+
+func OpRemoveGroupMember(db *sql.DB, gid int64, uid int64) bool {
+	if !RemoveGroupMember(db, gid, uid) {
+		return false
+	}
+	
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	key := fmt.Sprintf("group_members_%d", gid)
+	_, err := conn.Do("SREM", key, uid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	key = fmt.Sprintf("user_groups_%d", uid)
+	_, err = conn.Do("SREM", key, gid)
+	if err != nil {
+		log.Infoln(err)
+	}
+	
+	return true
 }
 
 func AddGroupMember(db *sql.DB, group_id int64, uid int64, isOwner int) bool {
@@ -154,7 +313,7 @@ ROLLBACK:
 	return false
 }
 
-func RemoveGroupMember(db *sql.DB, group_id int64, uid int64) bool {
+func RemoveGroupMember(db *sql.DB, group_id int64, uid int64) bool {	
 	var stmt1, stmt2 *sql.Stmt
 
 	tx, err := db.Begin()
@@ -197,80 +356,14 @@ ROLLBACK:
 	return false
 }
 
-func LoadGroupById(db *sql.DB, id int64) (string, string, bool, bool, int64, error) {
-	stmtIns, err := db.Prepare("select `title`, `desc`, `owner`, `isPrivate`, `isAllowInvite` from `group` where id=?")
+func LoadGroupMember(group_id int64) ([]int64, error) {
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
 	if err != nil {
 		log.Info("error:", err)
-		return "", "", false, false, 0, err
+		return nil, err
 	}
-
-	defer stmtIns.Close()
+	defer db.Close()
 	
-	var title, desc string
-	var owner int64
-	var isPrivate, isAllowInvite int
-	err = stmtIns.QueryRow(id).Scan(&title, &desc, &owner, &isPrivate, &isAllowInvite)
-	if err != nil {
-		log.Info("error:", err)
-		return "", "", false, false, 0, err
-	}
-	
-	isPri := true
-	isAllow := true
-	
-	if isPrivate == 0 {
-		isPri = false
-	}
-	
-	if isAllowInvite == 0 {
-		isAllow = false
-	}
-	
-	return title, desc, isPri, isAllow, owner, nil
-}
-
-func LoadAllGroup(db *sql.DB) (map[int64]*Group, error) {
-	stmtIns, err := db.Prepare("select `id`, `title`, `desc`, `owner`, `isPrivate`, `isAllowInvite` from `group` where isDeleted=0 and type=1")
-	if err != nil {
-		log.Info("error:", err)
-		return nil, nil
-	}
-
-	defer stmtIns.Close()
-	groups := make(map[int64]*Group)
-	rows, err := stmtIns.Query()
-	for rows.Next() {
-		var id int64
-		var owner int64
-		var title string
-		var desc string
-		var isPrivate int
-		var isAllowInvite int
-		rows.Scan(&id, &title, &desc, &owner, &isPrivate, &isAllowInvite)
-		members, err := LoadGroupMember(db, id)
-		if err != nil {
-			log.Info("error:", err)
-			continue
-		}
-
-		isPri := true
-		isAllow := true
-		
-		if isPrivate == 0 {
-			isPri = false
-		}
-		
-		if isAllowInvite == 0 {
-			isAllow = false
-		}
-		
-		group := NewGroup(id, 1, members, isPri, isAllow, title, desc, owner)
-		groups[group.gid] = group
-	}
-	return groups, nil
-}
-
-func LoadGroupMember(db *sql.DB, group_id int64) ([]int64, error) {
 	sql := fmt.Sprintf("SELECT user_id FROM group_members_0%d WHERE group_id=?", group_id % 10)
 	stmtIns, err := db.Prepare(sql)
 	if err != nil {
@@ -289,7 +382,7 @@ func LoadGroupMember(db *sql.DB, group_id int64) ([]int64, error) {
 	return members, nil
 }
 
-func CreateGroup(db *sql.DB, id int64, title string, desc string, isPrivate int32, isAllowInvite int32, owner int64, gouhao int) bool {	
+func CreateGroup(db *sql.DB, id int64, title string, desc string, isPrivate int, isAllowInvite int, owner int64, gouhao int) bool {	
 	stmt, err := db.Prepare("INSERT INTO `group` (`id`, `title`, `desc`, `owner`, `gouhao`, `isPrivate`, `isAllowInvite`, `create_time`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		log.Info("error:", err)

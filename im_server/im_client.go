@@ -33,25 +33,13 @@ type IMClient struct {
 }
 
 func (client *IMClient) Login() {
-	client.SubscribeGroup()
-	channel := GetUserStorageChannel(client.uid)
-	channel.Subscribe(client.appid, client.uid)
-	channel = GetChannel(client.uid)
-	channel.Subscribe(client.appid, client.uid)
-
 	client.LoadOffline()
 	client.LoadGroupOffline()
-
-	SetUserUnreadCount(client.appid, client.uid, 0)
 }
 
 func (client *IMClient) Logout() {
 	if client.uid > 0 {
-		channel := GetChannel(client.uid)
-		channel.Unsubscribe(client.appid, client.uid)
-		channel = GetUserStorageChannel(client.uid)
-		channel.Unsubscribe(client.appid, client.uid)
-		client.UnsubscribeGroup()
+		
 	}
 }
 
@@ -72,14 +60,11 @@ func (client *IMClient) LoadGroupOffline() {
 		return
 	}
 
-	groups := group_manager.FindUserGroups(client.appid, client.uid)
-	for _, group := range groups {
-		if !group.super {
-			continue
-		}
-		messages, err := client.LoadGroupOfflineMessage(group.gid)
+	gids := OpGetUserGroups(client.uid)
+	for _, gid := range gids {
+		messages, err := client.LoadGroupOfflineMessage(gid)
 		if err != nil {
-			log.Errorf("load group offline message err:%d %s", group.gid, err)
+			log.Errorf("load group offline message err:%d %s", gid, err)
 			continue
 		}
 
@@ -111,15 +96,6 @@ func (client *IMClient) LoadOffline() {
 	}
 }
 
-func (client *IMClient) SubscribeGroup() {
-	group_center.SubscribeGroup(client.appid, client.uid)
-}
-
-func (client *IMClient) UnsubscribeGroup() {
-	group_center.UnsubscribeGroup(client.appid, client.uid)
-}
-
-
 func (client *IMClient) HandleIMMessage(msg *IMMessage, seq int) {
 	if client.uid == 0 {
 		log.Warning("client has't been authenticated")
@@ -132,7 +108,7 @@ func (client *IMClient) HandleIMMessage(msg *IMMessage, seq int) {
 	}
 	
 	//判断黑名单
-	if user_manager.IsBlack(msg.receiver, msg.sender) {
+	if OpIsUserBlack(msg.receiver, msg.sender) {
 		client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
 		return
 	}
@@ -163,33 +139,26 @@ func (client *IMClient) HandleGroupIMMessage(msg *IMMessage, seq int) {
 	msg.timestamp = int32(time.Now().Unix())
 	m := &Message{cmd: MSG_GROUP_IM, version:DEFAULT_VERSION, body: msg}
 
-	group := group_manager.FindGroup(msg.receiver)
+	group := OpGetGroup(msg.receiver)
 	if group == nil {
 		log.Warning("can't find group:", msg.receiver)
 		return
 	}
 	
-	members := group.Members()
-	for member := range members {
-		_, err := SaveMessage(client.appid, member, client.device_ID, m)
-		if err != nil {
-			continue
-		}
+	msgid, err := SaveGroupMessage(client.appid, msg.receiver, client.device_ID, m)
+	if err != nil {
+		return
 	}
 	
 	client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
 	atomic.AddInt64(&server_summary.in_message_count, 1)
-	log.Infof("group message sender:%d group id:%d", msg.sender, msg.receiver)
+	log.Infof("group message sender:%d group id:%d msgid:%d", msg.sender, msg.receiver, msgid)
 }
 
 func (client *IMClient) HandleInputing(inputing *MessageInputing) {
 	msg := &Message{cmd: MSG_INPUTING, body: inputing}
 	client.SendMessage(inputing.receiver, msg)
 	log.Infof("inputting sender:%d receiver:%d", inputing.sender, inputing.receiver)
-}
-
-func (client *IMClient) HandleUnreadCount(u *MessageUnreadCount) {
-	SetUserUnreadCount(client.appid, client.uid, u.count)
 }
 
 func (client *IMClient) HandleACK(ack *MessageACK) {
@@ -202,11 +171,9 @@ func (client *IMClient) HandleACK(ack *MessageACK) {
 	msg := emsg.msg
 	if msg != nil && msg.cmd == MSG_GROUP_IM {
 		im := emsg.msg.body.(*IMMessage)
-		group := group_manager.FindGroup(im.receiver)
-		if group != nil && group.super {
+		group := OpGetGroup(im.receiver)
+		if group != nil{
 			client.DequeueGroupMessage(emsg.msgid, im.receiver)
-		} else {
-			client.DequeueMessage(emsg.msgid)
 		}
 	} else {
 		client.DequeueMessage(emsg.msgid)
@@ -257,7 +224,7 @@ func (client *IMClient) HandleTransmitUser(msg *IMMessage, seq int) {
 	}
 	
 	//判断黑名单
-	if user_manager.IsBlack(msg.receiver, msg.sender) {
+	if OpIsUserBlack(msg.receiver, msg.sender) {
 		client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
 		return
 	}
@@ -285,23 +252,14 @@ func (client *IMClient) HandleTransmitGroup(msg *IMMessage, seq int) {
 	msg.timestamp = int32(time.Now().Unix())
 	m := &Message{cmd: MSG_TRANSMIT_GROUP, version:DEFAULT_VERSION, body: msg}
 
-	group := group_manager.FindGroup(msg.receiver)
-	if group == nil {
-		log.Warning("can't find group:", msg.receiver)
+	msgid, err := SaveGroupMessage(client.appid, msg.receiver, client.device_ID, m)
+	if err != nil {
 		return
-	}
-	
-	members := group.Members()
-	for member := range members {
-		_, err := SaveMessage(client.appid, member, client.device_ID, m)
-		if err != nil {
-			continue
-		}
 	}
 	
 	client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
 	atomic.AddInt64(&server_summary.in_message_count, 1)
-	log.Infof("group message sender:%d group id:%d", msg.sender, msg.receiver)
+	log.Infof("group message sender:%d group id:%d msgid:%d\n", msg.sender, msg.receiver, msgid)
 }
 
 func (client *IMClient) HandleMessage(msg *Message) {
@@ -318,8 +276,6 @@ func (client *IMClient) HandleMessage(msg *Message) {
 		client.HandleSubsribe(msg.body.(*MessageSubscribeState))
 	case MSG_RT:
 		client.HandleRTMessage(msg)
-	case MSG_UNREAD_COUNT:
-		client.HandleUnreadCount(msg.body.(*MessageUnreadCount))
 	case MSG_TRANSMIT_USER:
 		client.HandleTransmitUser(msg.body.(*IMMessage), msg.seq)
 	case MSG_TRANSMIT_GROUP:
@@ -352,7 +308,7 @@ func (client *IMClient) HandleMessage(msg *Message) {
 }
 
 func (client *IMClient) handlerGroupDel(groupDel *GroupDel) {
-	group := group_manager.FindGroup(groupDel.gid)
+	group := OpGetGroup(groupDel.gid)
 	
 	if group == nil {
 		msg := &Message{cmd: MSG_GROUP_DEL_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
@@ -375,10 +331,10 @@ func (client *IMClient) handlerGroupDel(groupDel *GroupDel) {
 	}
 	defer db.Close()
 	
-	user_manager.PubGroupDisband(groupDel.gid)
+	members := OpGetGroupMembers(groupDel.gid)
 	
-	for member, _ := range group.members {
-		RemoveGroupMember(db, groupDel.gid, member)
+	for _, member := range members {
+		OpRemoveGroupMember(db, groupDel.gid, member)
 		
 		//构造一条透传发送群解散透传
 		obj := make(map[string]interface{})
@@ -401,12 +357,14 @@ func (client *IMClient) handlerGroupDel(groupDel *GroupDel) {
 		SaveMessage(client.appid, msg.receiver, client.device_ID, m)
 	}
 	
+	OpDelGroup(db, groupDel.gid)
+	
 	msg := &Message{cmd: MSG_GROUP_DEL_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
 	client.wt <- msg
 }
 
 func (client *IMClient) handlerGroupQuit(groupQuit *GroupQuit) {
-	group := group_manager.FindGroup(groupQuit.gid)
+	group := OpGetGroup(groupQuit.gid)
 	
 	if group == nil {
 		msg := &Message{cmd: MSG_GROUP_QUIT_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
@@ -436,15 +394,12 @@ func (client *IMClient) handlerGroupQuit(groupQuit *GroupQuit) {
 		return
 	}
 	
-	group.RemoveMember(client.uid)
-	user_manager.PubGroupMemberRemove(group.gid, client.uid)
-	
 	msg := &Message{cmd: MSG_GROUP_QUIT_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
 	client.wt <- msg
 }
 
 func (client *IMClient) handlerGroupRemove(groupRemove *GroupRemove) {
-	group := group_manager.FindGroup(groupRemove.gid)
+	group := OpGetGroup(groupRemove.gid)
 	
 	if group == nil {
 		msg := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
@@ -474,15 +429,12 @@ func (client *IMClient) handlerGroupRemove(groupRemove *GroupRemove) {
 	}
 	defer db.Close()
 	
-	if !RemoveGroupMember(db, group.gid, groupRemove.uid) {
+	if !OpRemoveGroupMember(db, group.gid, groupRemove.uid) {
 		msg := &Message{cmd: MSG_GROUP_REMOVE_RESP, version:DEFAULT_VERSION, body: &SimpleResp{4}}
 		client.wt <- msg
 			
 		return
 	}
-	
-	group.RemoveMember(groupRemove.uid)
-	user_manager.PubGroupMemberRemove(group.gid, groupRemove.uid)
 	
 	//构造一条透传发送被移除透传
 	obj := make(map[string]interface{})
@@ -509,7 +461,7 @@ func (client *IMClient) handlerGroupRemove(groupRemove *GroupRemove) {
 }
 
 func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin) {
-	group := group_manager.FindGroup(groupInviteJoin.gid)
+	group := OpGetGroup(groupInviteJoin.gid)
 	
 	if group == nil {
 		msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
@@ -518,21 +470,21 @@ func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin)
 		return
 	}
 	
-	if group.owner != client.uid && !group.is_allow_invite{
+	if group.owner != client.uid && group.is_allow_invite == 0{
 		msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{2}}
 		client.wt <- msg
 			
 		return
 	}
 	
-	if !group.IsMember(client.uid) {
+	if !OpIsGroupMember(group.gid, client.uid) {
 		msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{3}}
 		client.wt <- msg
 			
 		return
 	}
 	
-	if (len(group.members)+len(groupInviteJoin.members)) > 500 {
+	if (OpGetGroupMemberNumber(group.gid)+len(groupInviteJoin.members)) > 500 {
 		msg := &Message{cmd: MSG_GROUP_INVITE_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{4}}
 		client.wt <- msg
 			
@@ -547,16 +499,13 @@ func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin)
 	defer db.Close()
 	
 	for _, member := range groupInviteJoin.members {
-		if group.IsMember(member) {
+		if OpIsGroupMember(group.gid, member) {
 			continue
 		}
 		
-		if !AddGroupMember(db, group.gid, member, 0) {
+		if !OpAddGroupMember(db, group.gid, member, 0) {
 			continue
 		}
-		
-		group.AddMember(member)
-		user_manager.PubGroupMemberAdd(group.gid, member)
 		
 		//构造一条透传发送被拉入群
 		obj := make(map[string]interface{})
@@ -584,7 +533,7 @@ func (client *IMClient) handlerGroupInviteJoin(groupInviteJoin *GroupInviteJoin)
 }
 
 func (client *IMClient) handlerGroupSelfJoin(groupSelfJoin *GroupSelfJoin) {
-	group := group_manager.FindGroup(groupSelfJoin.gid)
+	group := OpGetGroup(groupSelfJoin.gid)
 	
 	if group == nil {
 		msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{1}}
@@ -600,14 +549,14 @@ func (client *IMClient) handlerGroupSelfJoin(groupSelfJoin *GroupSelfJoin) {
 		return
 	}
 	
-	if group.is_private {
+	if group.is_private != 0 {
 		msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{3}}
 		client.wt <- msg
 			
 		return
 	}
 	
-	if len(group.members) >= 500 {
+	if OpGetGroupMemberNumber(groupSelfJoin.gid) >= 500 {
 		msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{4}}
 		client.wt <- msg
 			
@@ -621,16 +570,13 @@ func (client *IMClient) handlerGroupSelfJoin(groupSelfJoin *GroupSelfJoin) {
 	}
 	defer db.Close()
 	
-	if !group.IsMember(client.uid) {
-		if !AddGroupMember(db, group.gid, client.uid, 0) {
+	if OpIsGroupMember(group.gid, client.uid) {
+		if !OpAddGroupMember(db, group.gid, client.uid, 0) {
 			msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{5}}
 			client.wt <- msg
 				
 			return
 		}
-		
-		group.AddMember(client.uid)
-		user_manager.PubGroupMemberAdd(group.gid, client.uid)
 	}
 	
 	msg := &Message{cmd: MSG_GROUP_SELF_JOIN_RESP, version:DEFAULT_VERSION, body: &SimpleResp{0}}
@@ -661,36 +607,22 @@ func (client *IMClient) handlerGroupCreate(groupCreate *GroupCreate) {
 	}
 	
 	gid := GenerateGroupUUID(client.uid)
+
 	
-	if !CreateGroup(db, gid, groupCreate.title, groupCreate.desc, groupCreate.is_private, groupCreate.is_allow_invite, client.uid, gouhao) {
+	if !OpCreateGroup(db, gid, groupCreate.title, groupCreate.desc, int(groupCreate.is_private), int(groupCreate.is_allow_invite), client.uid, gouhao) {
 		msg := &Message{cmd: MSG_GROUP_CREATE_RESP, version:DEFAULT_VERSION, body: &GroupCreateResp{2, 0}}
 		client.wt <- msg
 			
 		return
 	}
 	
-	group_manager.mutex.Lock()
-	defer group_manager.mutex.Unlock()
-	
-	pri := true
-	if groupCreate.is_private == 0 {
-		pri = false
-	}
-	
-	allow := true
-	if groupCreate.is_allow_invite == 0 {
-		allow = false
-	}
-	
-	group_manager.groups[gid] = NewGroup(gid, 1, groupCreate.members, pri, allow, groupCreate.title, groupCreate.desc, client.uid)
-	
-	AddGroupMember(db, gid, client.uid, 1)
+	OpAddGroupMember(db, gid, client.uid, 1)
 	for _, member := range groupCreate.members {
 		if member == client.uid {
 			continue
 		}
 		
-		if AddGroupMember(db, gid, member, 0) {
+		if OpAddGroupMember(db, gid, member, 0) {
 			//构造一条透传发送被拉入群
 			obj := make(map[string]interface{})
 			obj["cmd"] = CMD_CALLBACK_GROUP_JOIN
@@ -712,8 +644,6 @@ func (client *IMClient) handlerGroupCreate(groupCreate *GroupCreate) {
 			SaveMessage(client.appid, msg.receiver, client.device_ID, m)
 		}
 	}
-	
-	user_manager.PubGroupCreate(gid)
 	
 	msg := &Message{cmd: MSG_GROUP_CREATE_RESP, version:DEFAULT_VERSION, body: &GroupCreateResp{0, gid}}
 	client.wt <- msg
@@ -737,14 +667,13 @@ func (client *IMClient) HandleContactBlack(contactBlack *ContactBlack) {
 	defer db.Close()
 	
 	//拉入黑名单
-	if !BlackAdd(db, contactBlack.sender, contactBlack.receiver) {
+	if !OpAddUserBlack(db, contactBlack.sender, contactBlack.receiver) {
 		msg := &Message{cmd: MSG_CONTACT_BLACK_RESP, version:DEFAULT_VERSION, body: &ContactBlackResp{3, contactBlack.sender, contactBlack.receiver}}
 		client.wt <- msg
 			
 		return
 	}
 	
-	user_manager.PubBlackAdd(contactBlack.sender, contactBlack.receiver)
 	msg := &Message{cmd: MSG_CONTACT_BLACK_RESP, version:DEFAULT_VERSION, body: &ContactBlackResp{0, contactBlack.sender, contactBlack.receiver}}
 	client.wt <- msg
 }
@@ -767,14 +696,12 @@ func (client *IMClient) HandleContactUnBlack(contactUnBlack *ContactUnBlack) {
 	defer db.Close()
 	
 	//解除黑名单
-	if !BlackRemove(db, contactUnBlack.sender, contactUnBlack.receiver) {
+	if !OpRemoveUserBlack(db, contactUnBlack.sender, contactUnBlack.receiver) {
 		msg := &Message{cmd: MSG_CONTACT_UNBLACK_RESP, version:DEFAULT_VERSION, body: &ContactUnBlackResp{2, contactUnBlack.sender, contactUnBlack.receiver}}
 		client.wt <- msg
 			
 		return
 	}
-	
-	user_manager.PubBlackRemove(contactUnBlack.sender, contactUnBlack.receiver)
 	
 	msg := &Message{cmd: MSG_CONTACT_UNBLACK_RESP, version:DEFAULT_VERSION, body: &ContactUnBlackResp{0, contactUnBlack.sender, contactUnBlack.receiver}}
 	client.wt <- msg
@@ -791,7 +718,7 @@ func (client *IMClient) HandleContactInvite(contactInvite *ContactInvite) {
 		return
 	}
 	
-	if user_manager.IsFriend(contactInvite.sender, contactInvite.receiver) {
+	if OpIsUserFriend(contactInvite.sender, contactInvite.receiver) {
 		
 		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{2, contactInvite.sender, contactInvite.receiver}}
 		client.wt <- msg
@@ -799,7 +726,7 @@ func (client *IMClient) HandleContactInvite(contactInvite *ContactInvite) {
 		return
 	}
 	
-	if user_manager.IsBlack(contactInvite.receiver, contactInvite.sender) {
+	if OpIsUserBlack(contactInvite.receiver, contactInvite.sender) {
 		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{3, contactInvite.sender, contactInvite.receiver}}
 		client.wt <- msg
 		
@@ -813,7 +740,7 @@ func (client *IMClient) HandleContactInvite(contactInvite *ContactInvite) {
 	}
 	defer db.Close()
 	
-	if !HasUserInfoById(db, contactInvite.receiver) {
+	if !OpHasUserInfoById(db, contactInvite.receiver) {
 		
 		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{4, contactInvite.sender, contactInvite.receiver}}
 		client.wt <- msg
@@ -822,14 +749,7 @@ func (client *IMClient) HandleContactInvite(contactInvite *ContactInvite) {
 	}
 	
 	//如果在黑名单中，自动解除黑名单
-	if !BlackRemove(db, contactInvite.sender, contactInvite.receiver) {
-		msg := &Message{cmd: MSG_CONTACT_INVITE_RESP, version:DEFAULT_VERSION, body: &ContactInviteResp{5, contactInvite.sender, contactInvite.receiver}}
-		client.wt <- msg
-		
-		return;
-	}
-	
-	user_manager.PubBlackRemove(contactInvite.sender, contactInvite.receiver)
+	OpRemoveUserBlack(db, contactInvite.sender, contactInvite.receiver)
 	
 	//构造一条透传发送好友申请
 	obj := make(map[string]interface{})
@@ -865,7 +785,7 @@ func (client *IMClient) HandleContactAccept(contactAccept *ContactAccept) {
 		return
 	}
 	
-	if user_manager.IsFriend(contactAccept.sender, contactAccept.receiver) {
+	if OpIsUserFriend(contactAccept.sender, contactAccept.receiver) {
 		
 		msg := &Message{cmd: MSG_CONTACT_ACCEPT_RESP, version:DEFAULT_VERSION, body: &ContactAcceptResp{2, contactAccept.sender, contactAccept.receiver}}
 		client.wt <- msg
@@ -880,7 +800,7 @@ func (client *IMClient) HandleContactAccept(contactAccept *ContactAccept) {
 	}
 	defer db.Close()
 	
-	if !HasUserInfoById(db, contactAccept.receiver) {
+	if !OpHasUserInfoById(db, contactAccept.receiver) {
 		
 		msg := &Message{cmd: MSG_CONTACT_ACCEPT_RESP, version:DEFAULT_VERSION, body: &ContactAcceptResp{4, contactAccept.sender, contactAccept.receiver}}
 		client.wt <- msg
@@ -889,22 +809,18 @@ func (client *IMClient) HandleContactAccept(contactAccept *ContactAccept) {
 	}
 	
 	//如果在黑名单中，自动解除黑名单
-	if user_manager.IsBlack(contactAccept.sender, contactAccept.receiver) {
-		BlackRemove(db, contactAccept.sender, contactAccept.receiver)
-		user_manager.PubBlackRemove(contactAccept.sender, contactAccept.receiver)
+	if OpIsUserBlack(contactAccept.sender, contactAccept.receiver) {
+		OpRemoveUserBlack(db, contactAccept.sender, contactAccept.receiver)
 	}
 	
-	if user_manager.IsBlack(contactAccept.receiver, contactAccept.sender) {
-		BlackRemove(db, contactAccept.receiver, contactAccept.sender)
-		user_manager.PubBlackRemove(contactAccept.receiver, contactAccept.sender)
+	if OpIsUserBlack(contactAccept.receiver, contactAccept.sender) {
+		OpRemoveUserBlack(db, contactAccept.receiver, contactAccept.sender)
 	}
 	
 	//建立好友关系
-	if !FriendAdd(db, contactAccept.sender, contactAccept.receiver) {
+	if !OpAddUserFriend(db, contactAccept.sender, contactAccept.receiver) {
 		return
 	}
-	
-	user_manager.PubFriendAdd(contactAccept.sender, contactAccept.receiver)
 	
 	//构造一条透传发送加好友申请通过通知
 	obj := make(map[string]interface{})
@@ -960,7 +876,7 @@ func (client *IMClient) HandleContactRefuse(contactRefuse *ContactRefuse) {
 		return
 	}
 	
-	if user_manager.IsFriend(contactRefuse.sender, contactRefuse.receiver) {
+	if OpIsUserFriend(contactRefuse.sender, contactRefuse.receiver) {
 		
 		msg := &Message{cmd: MSG_CONTACT_REFUSE_RESP, version:DEFAULT_VERSION, body: &ContactRefuseResp{2, contactRefuse.sender, contactRefuse.receiver}}
 		client.wt <- msg
@@ -968,7 +884,7 @@ func (client *IMClient) HandleContactRefuse(contactRefuse *ContactRefuse) {
 		return
 	}
 	
-	if user_manager.IsBlack(contactRefuse.receiver, contactRefuse.sender) {
+	if OpIsUserBlack(contactRefuse.receiver, contactRefuse.sender) {
 		msg := &Message{cmd: MSG_CONTACT_REFUSE_RESP, version:DEFAULT_VERSION, body: &ContactRefuseResp{3, contactRefuse.sender, contactRefuse.receiver}}
 		client.wt <- msg
 		
@@ -1008,7 +924,7 @@ func (client *IMClient) HandleContactDel(contactDel *ContactDel) {
 		return
 	}
 	
-	if !user_manager.IsFriend(contactDel.sender, contactDel.receiver) {
+	if !OpIsUserFriend(contactDel.sender, contactDel.receiver) {
 		
 		msg := &Message{cmd: MSG_CONTACT_DEL_RESP, version:DEFAULT_VERSION, body: &ContactDelResp{2, contactDel.sender, contactDel.receiver}}
 		client.wt <- msg
@@ -1024,11 +940,9 @@ func (client *IMClient) HandleContactDel(contactDel *ContactDel) {
 	defer db.Close()
 	
 	//删除好友关系
-	if !FriendRemove(db, contactDel.sender, contactDel.receiver) {
+	if !OpRemoveUserFriend(db, contactDel.sender, contactDel.receiver) {
 		return
 	}
-	
-	user_manager.PubFriendRemove(contactDel.sender, contactDel.receiver)
 	
 	//构造一条透传发送加好友删除通知
 	obj := make(map[string]interface{})

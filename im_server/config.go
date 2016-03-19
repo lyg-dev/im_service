@@ -25,6 +25,7 @@ import "strings"
 import "github.com/richmonkey/cfg"
 
 type Config struct {
+	server_id		string
 	port                int
 	mysqldb_datasource  string
 	mysqldb_appdatasource  string
@@ -36,22 +37,6 @@ type Config struct {
 
 	storage_addrs       []string
 	route_addrs         []string
-}
-
-type StorageConfig struct {
-	listen              string
-	storage_root        string
-	mysqldb_datasource  string
-	redis_address       string
-	redis_password		string
-	sync_listen         string
-	master_address      string
-}
-
-type RouteConfig struct {
-	listen string
-	redis_address       string
-	redis_password		string
 }
 
 func get_int(app_cfg map[string]string, key string) int {
@@ -74,14 +59,6 @@ func get_string(app_cfg map[string]string, key string) string {
 	return concurrency
 }
 
-func get_opt_string(app_cfg map[string]string, key string) string {
-	concurrency, present := app_cfg[key]
-	if !present {
-		return ""
-	}
-	return concurrency
-}
-
 func read_cfg(cfg_path string) *Config {
 	config := new(Config)
 	app_cfg := make(map[string]string)
@@ -90,6 +67,7 @@ func read_cfg(cfg_path string) *Config {
 		log.Fatal(err)
 	}
 
+	config.server_id = get_string(app_cfg, "server_id")
 	config.port = get_int(app_cfg, "port")
 	config.http_listen_address = get_string(app_cfg, "http_listen_address")
 	config.redis_address = get_string(app_cfg, "redis_address")
@@ -112,37 +90,5 @@ func read_cfg(cfg_path string) *Config {
 		log.Fatal("route pool config")
 	}
 
-	return config
-}
-
-func read_storage_cfg(cfg_path string) *StorageConfig {
-	config := new(StorageConfig)
-	app_cfg := make(map[string]string)
-	err := cfg.Load(cfg_path, app_cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	config.listen = get_string(app_cfg, "listen")
-	config.storage_root = get_string(app_cfg, "storage_root")
-	config.redis_address = get_string(app_cfg, "redis_address")
-	config.redis_password = get_string(app_cfg, "redis_password")
-	config.mysqldb_datasource = get_string(app_cfg, "mysqldb_source")
-	config.sync_listen = get_string(app_cfg, "sync_listen")
-	config.master_address = get_opt_string(app_cfg, "master_address")
-	return config
-}
-
-func read_route_cfg(cfg_path string) *RouteConfig {
-	config := new(RouteConfig)
-	app_cfg := make(map[string]string)
-	err := cfg.Load(cfg_path, app_cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	config.listen = get_string(app_cfg, "listen")
-	config.redis_address = get_string(app_cfg, "redis_address")
-	config.redis_password = get_string(app_cfg, "redis_password")
 	return config
 }

@@ -29,7 +29,6 @@ type Client struct {
 	*IMClient
 	*RoomClient
 	*VOIPClient
-	*CSClient
 	public_ip int32
 }
 
@@ -59,7 +58,6 @@ func NewClient(conn interface{}) *Client {
 	client.RoomClient = &RoomClient{Connection:&client.Connection}
 	client.RoomClient.room_ids = make(map[int64]struct{})
 	client.VOIPClient = &VOIPClient{Connection:&client.Connection}
-	client.CSClient = &CSClient{Connection:&client.Connection}
 	return client
 }
 
@@ -76,15 +74,16 @@ func (client *Client) Read() {
 
 func (client *Client) HandleRemoveClient() {
 	client.wt <- nil
-	route := app_route.FindRoute(client.appid)
-	if route == nil {
-		log.Warning("can't find app route")
-		return
-	}
 	route.RemoveClient(client)
 
 	client.RoomClient.Logout(route)
 	client.IMClient.Logout()
+	
+	OpRemoveUserLoginPoint(client.uid, client.platform_id, client.device_id)
+	
+	if !route.IsOnline(client.uid) {
+		OpRemoveUserServer(client.uid, server_id)
+	}
 }
 
 func (client *Client) HandleMessage(msg *Message) {
@@ -101,21 +100,19 @@ func (client *Client) HandleMessage(msg *Message) {
 	client.IMClient.HandleMessage(msg)
 	client.RoomClient.HandleMessage(msg)
 	client.VOIPClient.HandleMessage(msg)
-	client.CSClient.HandleMessage(msg)
 }
 
 
 func (client *Client) SendLoginPoint() {
-	point := &LoginPoint{}
-	point.up_timestamp = int32(client.tm.Unix())
-	point.platform_id = client.platform_id
-	point.device_id = client.device_id
-	msg := &Message{cmd:MSG_LOGIN_POINT, body:point}
-	client.SendMessage(client.uid, msg)
+	//写入客户端连接机器id
+	OpAddUserServer(client.uid, server_id)
+	
+	//设置登录设备信息
+	OpAddUserLoginPoint(client.uid, client.platform_id, client.device_id)
 }
 
 func (client *Client) AuthToken(token string) (int64, int64, error) {
-	appid, uid, _, err := LoadUserAccessToken(token)
+	appid, uid, _, err := OpLoadUserAccessToken(token)
 	return appid, uid, err
 }
 
@@ -174,7 +171,6 @@ func (client *Client) HandleAuthToken(login *AuthenticationToken, version int) {
 }
 
 func (client *Client) AddClient() {
-	route := app_route.FindOrAddRoute(client.appid)
 	route.AddClient(client)
 }
 

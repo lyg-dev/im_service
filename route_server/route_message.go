@@ -67,6 +67,8 @@ func init() {
 	message_creators[MSG_SUBSCRIBE_ROOM] = func() IMessage { return new(AppRoomID) }
 	message_creators[MSG_UNSUBSCRIBE_ROOM] = func() IMessage { return new(AppRoomID) }
 	message_creators[MSG_PUBLISH_ROOM] = func() IMessage { return new(AppMessage) }
+	
+	message_creators[MSG_SERVER_REGISTER] = func() IMessage { return new(ServerID) }
 
 	message_descriptions[MSG_PUBLISH_OFFLINE] = "MSG_PUBLISH_OFFLINE"
 	message_descriptions[MSG_SUBSCRIBE] = "MSG_SUBSCRIBE"
@@ -80,6 +82,8 @@ func init() {
 	message_descriptions[MSG_SUBSCRIBE_ROOM] = "MSG_SUBSCRIBE_ROOM"
 	message_descriptions[MSG_UNSUBSCRIBE_ROOM] = "MSG_UNSUBSCRIBE_ROOM"
 	message_descriptions[MSG_PUBLISH_ROOM] = "MSG_PUBLISH_ROOM"
+	
+	message_descriptions[MSG_SERVER_REGISTER] = "MSG_SERVER_REGISTER"
 }
 
 type AppMessage struct {

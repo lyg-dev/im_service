@@ -88,6 +88,8 @@ const MSG_SUBSCRIBE_ROOM = 136
 const MSG_UNSUBSCRIBE_ROOM = 137
 const MSG_PUBLISH_ROOM = 138
 
+const MSG_SERVER_REGISTER = 139
+
 //好友
 const MSG_CONTACT_INVITE = 10200
 const MSG_CONTACT_INVITE_RESP = 10201
@@ -200,6 +202,8 @@ func init() {
 	message_creators[MSG_UNSUBSCRIBE_ROOM] = func()IMessage{return new(AppRoomID)}
 	message_creators[MSG_PUBLISH_ROOM] = func()IMessage{return new(AppMessage)}
 	
+	message_creators[MSG_SERVER_REGISTER] = func() IMessage { return new(ServerID) }
+	
 	message_creators[MSG_CONTACT_ACCEPT] = func() IMessage { return new(ContactAccept) }
 	message_creators[MSG_CONTACT_ACCEPT_RESP] = func() IMessage { return new(ContactAcceptResp) }
 	message_creators[MSG_CONTACT_INVITE] = func() IMessage { return new(ContactInvite) }
@@ -238,6 +242,8 @@ func init() {
 	message_descriptions[MSG_SUBSCRIBE_ROOM] = "MSG_SUBSCRIBE_ROOM"
 	message_descriptions[MSG_UNSUBSCRIBE_ROOM] = "MSG_UNSUBSCRIBE_ROOM"
 	message_descriptions[MSG_PUBLISH_ROOM] = "MSG_PUBLISH_ROOM"
+	
+	message_descriptions[MSG_SERVER_REGISTER] = "MSG_SERVER_REGISTER"
 	
 	message_descriptions[MSG_AUTH] = "MSG_AUTH"
 	message_descriptions[MSG_AUTH_STATUS] = "MSG_AUTH_STATUS"
@@ -353,6 +359,22 @@ func (message *Message) FromData(buff []byte) bool {
 	}
 
 	return len(buff) == 0
+}
+
+type ServerID struct {
+	serverid string
+}
+
+func (id *ServerID) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	buffer.Write([]byte(id.serverid))
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (id *ServerID) FromData(buff []byte) bool {
+	id.serverid = string(buff)
+	return true
 }
 
 type RTMessage struct {
