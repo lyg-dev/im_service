@@ -25,6 +25,8 @@ import "time"
 import "runtime"
 import "github.com/garyburd/redigo/redis"
 import log "github.com/golang/glog"
+import "database/sql"
+import _ "github.com/go-sql-driver/mysql"
 
 var server_id string
 
@@ -276,6 +278,25 @@ func DialStorageFun(addr string) func()(*StorageConn, error) {
 	return f
 }
 
+func LoadDBData() {
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+	defer db.Close()
+	
+	//加载好有数据
+	OpLoadAllFriends(db)
+	
+	//加载黑名单数据
+	OpLoadAllBlacks(db)
+	
+	//加载群组数据
+	OpLoadAllGroup(db)
+}
+
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
@@ -324,6 +345,8 @@ func main() {
 		channel.Start()
 		route_channels = append(route_channels, channel)
 	}
+	
+	LoadDBData()
 
 	go StartSocketIO(config.socket_io_address)
 	ListenClient()

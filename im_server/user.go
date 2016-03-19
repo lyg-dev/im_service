@@ -284,8 +284,7 @@ func OpHasUserInfoById(db *sql.DB, id int64) bool {
 }
 
 
-func LoadAllFriends(db *sql.DB) (map[int64]common.IntSet, error) {
-	
+func OpLoadAllFriends(db *sql.DB) {
 	//加载用户好友列表
 	friends := make(map[int64]common.IntSet)
 	
@@ -306,21 +305,41 @@ func LoadAllFriends(db *sql.DB) (map[int64]common.IntSet, error) {
 				friends[uid].Add(fid)
 			}
 		} else {
-			return nil, err
+			return 
 		}
 	}
 	
-	return friends, nil
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	for uid, fids := range friends {
+		key := fmt.Sprintf("user_friends_%d", uid)
+		b, err := redis.Bool(conn.Do("EXISTS", key))
+		if err != nil {
+			log.Infoln(err)
+			continue
+		}
+		
+		if b {
+			continue
+		}
+		
+		for fid, _ := range fids {
+			_, err = conn.Do("SADD", key, fid)
+			if err != nil {
+				log.Infoln(err)
+			}
+		}
+	}
 }
 
-func LoadAllBlacks(db *sql.DB) (map[int64]common.IntSet, error) {
-	
+func OpLoadAllBlacks(db *sql.DB) {
 	//加载用户黑名单列表
 	blacks := make(map[int64]common.IntSet)
 	
 	stmt, err := db.Prepare("SELECT user_id, blacks FROM user_blacks")
 	if err != nil {
-		return nil, err
+		return
 	}
 	
 	rows, err := stmt.Query()
@@ -349,8 +368,29 @@ func LoadAllBlacks(db *sql.DB) (map[int64]common.IntSet, error) {
 			log.Errorf("2 load black error: %s", err)
 		}
 	}
+	
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	for uid, bids := range blacks {
+		key := fmt.Sprintf("user_blacks_%d", uid)
+		b, err := redis.Bool(conn.Do("EXISTS", key))
+		if err != nil {
+			log.Infoln(err)
+			continue
+		}
 		
-	return blacks, nil
+		if b {
+			continue
+		}
+		
+		for bid, _ := range bids {
+			_, err = conn.Do("SADD", key, bid)
+			if err != nil {
+				log.Infoln(err)
+			}
+		}
+	}
 }
 
 func FriendAdd(db *sql.DB, uid int64, fid int64) bool {

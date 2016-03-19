@@ -153,8 +153,15 @@ func OpGetGroupMembers(gid int64) []int64 {
 		return uids
 	}
 	
+	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
+	if err != nil {
+		log.Info("error:", err)
+		return uids
+	}
+	defer db.Close()
+	
 	if len(members) == 0 {
-		ms, err := LoadGroupMember(gid)
+		ms, err := LoadGroupMember(db, gid)
 		if err != nil {
 			return uids
 		}
@@ -356,14 +363,7 @@ ROLLBACK:
 	return false
 }
 
-func LoadGroupMember(group_id int64) ([]int64, error) {
-	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
-	if err != nil {
-		log.Info("error:", err)
-		return nil, err
-	}
-	defer db.Close()
-	
+func LoadGroupMember(db *sql.DB, group_id int64) ([]int64, error) {	
 	sql := fmt.Sprintf("SELECT user_id FROM group_members_0%d WHERE group_id=?", group_id % 10)
 	stmtIns, err := db.Prepare(sql)
 	if err != nil {
@@ -417,6 +417,73 @@ func DeleteGroup(db *sql.DB, id int64) bool {
 	
 	return true
 }
+
+func OpLoadAllGroup(db *sql.DB) {
+	stmtIns, err := db.Prepare("select id, title, desc, isPrivate, isAllowInvite, owner, gouhao from `group` where isDeleted=0 and type=1")
+	if err != nil {
+		log.Info("error:", err)
+		return
+	}
+
+	defer stmtIns.Close()
+	
+	conn := redis_pool.Get()
+	defer conn.Close()
+	
+	rows, err := stmtIns.Query()
+	for rows.Next() {
+		var gid int64
+		var title string
+		var desc string
+		var is_private int
+		var is_allow_invite int
+		var owner int64
+		var gouhao int
+		
+		rows.Scan(&gid, &title, &desc, &is_private, &is_allow_invite, &owner, &gouhao)
+
+		//建立群信息
+		key := fmt.Sprintf("group_%d", gid)
+		b, err := redis.Bool(conn.Do("EXISTS", key))
+		if err != nil {
+			continue
+		}
+		
+		if b {
+			continue
+		}
+		
+		_, err = conn.Do("HMSET", key, "title", title, "desc", desc, "is_private", is_private, "is_allow_invite", is_allow_invite, "owner", owner, "gouhao", gouhao)
+		if err != nil {
+			log.Infoln(err)
+			continue
+		}
+		
+		//群成员
+		//成员群关系
+		members, err := LoadGroupMember(db, gid)
+		if err != nil {
+			log.Info("error:", err)
+			continue
+		}
+		
+		for _, uid := range members {
+			key = fmt.Sprintf("group_members_%d", gid)
+			_, err := conn.Do("SADD", key, uid)
+			if err != nil {
+				log.Infoln(err)
+			}
+			
+			key = fmt.Sprintf("user_groups_%d", uid)
+			_, err = conn.Do("SADD", key, gid)
+			if err != nil {
+				log.Infoln(err)
+			}
+		}
+	}
+	
+}
+
 
 func GenerateGroupUUID(uid int64) int64 {
 	return int64(time.Now().UnixNano() / 1000) * 1000000 + uid % 1000000
