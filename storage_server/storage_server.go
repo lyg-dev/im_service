@@ -39,6 +39,7 @@ var config *StorageConfig
 var mutex sync.Mutex
 var redis_pool *redis.Pool
 var iw *goSnowFlake.IdWorker
+var route_clients map[string]*Client
 
 const GROUP_C_COUNT = 10
 
@@ -49,6 +50,7 @@ func init() {
 	for i := 0; i < GROUP_C_COUNT; i++ {
 		group_c[i] = make(chan func())
 	}
+	route_clients = make(map[string]*Client)
 }
 
 func GetGroupChan(gid int64) chan func() {
@@ -64,7 +66,7 @@ func GetUserChan(uid int64) chan func() {
 type Client struct {
 	conn *net.TCPConn
 
-	//subscribe mode
+	serverId string
 	wt        chan *Message
 }
 
@@ -80,6 +82,7 @@ func (client *Client) Read() {
 	for {
 		msg := client.read()
 		if msg == nil {
+			RemoveClient(client.serverId)
 			client.wt <- nil
 			break
 		}
@@ -96,6 +99,32 @@ func (client *Client) Write() {
 		}
 		SendMessage(client.conn, msg)
 	}
+}
+
+func RemoveClient(serverId string) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	
+	delete(route_clients, serverId)
+}
+
+func (client *Client) HandleRegister(id *ServerID) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	
+	client.serverId = id.serverid
+}
+
+func (client *Client) HandleRegisterStorage(id *ServerID) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	
+	if _, ok := route_clients[id.serverid]; ok {
+		return
+	}
+	
+	client.serverId = id.serverid
+	route_clients[id.serverid] = client
 }
 
 func (client *Client) HandleSaveAndEnqueueGroup(sae *SAEMessage) {
@@ -115,18 +144,13 @@ func (client *Client) HandleSaveAndEnqueueGroup(sae *SAEMessage) {
 	t := make(chan int64)
 	f := func() {
 		msgid := storage.SaveGroupMessage(appid, gid, sae.device_id, sae.msg)
-		
-		result := &MessageResult{}
-		result.status = 0
-		buffer := new(bytes.Buffer)
-		binary.Write(buffer, binary.BigEndian, msgid)
-		result.content = buffer.Bytes()
-		msg := &Message{cmd: MSG_RESULT, body: result}
-		SendMessage(client.conn, msg)
 
 		am := &AppMessage{appid: appid, receiver: gid, msgid: msgid, device_id: sae.device_id, msg: sae.msg}
 		m := &Message{cmd: MSG_PUBLISH_GROUP, body: am}
-		client.wt <- m
+		
+		if c, ok := route_clients[client.serverId]; ok {
+			c.wt <- m
+		}
 			
 		t <- msgid
 	}
@@ -135,6 +159,14 @@ func (client *Client) HandleSaveAndEnqueueGroup(sae *SAEMessage) {
 	c <- f
 	msgid := <-t
 	log.Infoln(msgid)	
+	
+	result := &MessageResult{}
+	result.status = 0
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, msgid)
+	result.content = buffer.Bytes()
+	msg := &Message{cmd: MSG_RESULT, body: result}
+	SendMessage(client.conn, msg)
 }
 
 func (client *Client) HandleDQGroupMessage(dq *DQGroupMessage) {
@@ -158,19 +190,13 @@ func (client *Client) HandleSaveAndEnqueue(sae *SAEMessage) {
 	t := make(chan int64)
 	f := func() {
 		msgid := storage.SavePeerMessage(appid, uid, sae.device_id, sae.msg)
-		
-		result := &MessageResult{}
-		result.status = 0
-		buffer := new(bytes.Buffer)
-		binary.Write(buffer, binary.BigEndian, msgid)
-		result.content = buffer.Bytes()
-		msg := &Message{cmd: MSG_RESULT, body: result}
-		log.Infoln(msg)
-		SendMessage(client.conn, msg)
 
 		am := &AppMessage{appid: appid, receiver: uid, msgid: msgid, device_id: sae.device_id, msg: sae.msg}
 		m := &Message{cmd: MSG_PUBLISH, body: am}
-		client.wt <- m
+		
+		if c, ok := route_clients[client.serverId]; ok {
+			c.wt <- m
+		}
 		
 		t <- msgid
 	}
@@ -179,6 +205,14 @@ func (client *Client) HandleSaveAndEnqueue(sae *SAEMessage) {
 	c <- f
 	msgid := <-t
 	log.Infoln(msgid)
+	
+	result := &MessageResult{}
+	result.status = 0
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, msgid)
+	result.content = buffer.Bytes()
+	msg := &Message{cmd: MSG_RESULT, body: result}
+	SendMessage(client.conn, msg)
 }
 
 func (client *Client) HandleDQMessage(dq *DQMessage) {
@@ -292,6 +326,10 @@ func (client *Client) HandleLoadGroupOffline(lh *LoadGroupOffline) {
 func (client *Client) HandleMessage(msg *Message) {
 	log.Info("msg cmd:", Command(msg.cmd))
 	switch msg.cmd {
+	case MSG_SERVER_REGISTER:
+		client.HandleRegister(msg.body.(*ServerID))
+	case MSG_SERVER_REGISTER_STORAGE:
+		client.HandleRegisterStorage(msg.body.(*ServerID))
 	case MSG_LOAD_OFFLINE:
 		client.HandleLoadOffline(msg.body.(*LoadOffline))
 	case MSG_SAVE_AND_ENQUEUE:
@@ -432,6 +470,7 @@ func main() {
 		return
 	}
 	iw = niw
+	
 	//新建/读取消息
 	storage = NewStorage(config.ots_endpoint, config.ots_accessid, config.ots_accesskey, config.ots_instancename)
 

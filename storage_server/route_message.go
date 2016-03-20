@@ -35,6 +35,9 @@ const MSG_SUBSCRIBE_ROOM = 136
 const MSG_UNSUBSCRIBE_ROOM = 137
 const MSG_PUBLISH_ROOM = 138
 
+const MSG_SERVER_REGISTER = 139
+const MSG_SERVER_REGISTER_STORAGE = 140
+
 
 func init() {
 	message_creators[MSG_SUBSCRIBE] = func()IMessage{return new(AppUserID)}
@@ -50,6 +53,9 @@ func init() {
 	message_creators[MSG_UNSUBSCRIBE_ROOM] = func()IMessage{return new(AppRoomID)}
 	message_creators[MSG_PUBLISH_ROOM] = func()IMessage{return new(AppMessage)}
 
+	message_creators[MSG_SERVER_REGISTER] = func() IMessage { return new(ServerID) }
+	message_creators[MSG_SERVER_REGISTER_STORAGE] = func() IMessage { return new(ServerID) }
+
 	message_descriptions[MSG_PUBLISH_OFFLINE] = "MSG_PUBLISH_OFFLINE"
 	message_descriptions[MSG_SUBSCRIBE] = "MSG_SUBSCRIBE"
 	message_descriptions[MSG_UNSUBSCRIBE] = "MSG_UNSUBSCRIBE"
@@ -62,6 +68,9 @@ func init() {
 	message_descriptions[MSG_SUBSCRIBE_ROOM] = "MSG_SUBSCRIBE_ROOM"
 	message_descriptions[MSG_UNSUBSCRIBE_ROOM] = "MSG_UNSUBSCRIBE_ROOM"
 	message_descriptions[MSG_PUBLISH_ROOM] = "MSG_PUBLISH_ROOM"
+	
+	message_descriptions[MSG_SERVER_REGISTER] = "MSG_SERVER_REGISTER"
+	message_descriptions[MSG_SERVER_REGISTER_STORAGE] = "MSG_SERVER_REGISTER_STORAGE"
 }
 
 type AppMessage struct {
@@ -122,5 +131,21 @@ func (amsg *AppMessage) FromData(buff []byte) bool {
 	}
 	amsg.msg = msg
 
+	return true
+}
+
+type ServerID struct {
+	serverid string
+}
+
+func (id *ServerID) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	buffer.Write([]byte(id.serverid))
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (id *ServerID) FromData(buff []byte) bool {
+	id.serverid = string(buff)
 	return true
 }

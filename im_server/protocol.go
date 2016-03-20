@@ -89,6 +89,7 @@ const MSG_UNSUBSCRIBE_ROOM = 137
 const MSG_PUBLISH_ROOM = 138
 
 const MSG_SERVER_REGISTER = 139
+const MSG_SERVER_REGISTER_STORAGE = 140
 
 //好友
 const MSG_CONTACT_INVITE = 10200
@@ -203,6 +204,7 @@ func init() {
 	message_creators[MSG_PUBLISH_ROOM] = func()IMessage{return new(AppMessage)}
 	
 	message_creators[MSG_SERVER_REGISTER] = func() IMessage { return new(ServerID) }
+	message_creators[MSG_SERVER_REGISTER_STORAGE] = func() IMessage { return new(ServerID) }
 	
 	message_creators[MSG_CONTACT_ACCEPT] = func() IMessage { return new(ContactAccept) }
 	message_creators[MSG_CONTACT_ACCEPT_RESP] = func() IMessage { return new(ContactAcceptResp) }
@@ -296,6 +298,7 @@ func init() {
 	message_descriptions[MSG_GROUP_QUIT_RESP] = "MSG_GROUP_QUIT_RESP"
 	message_descriptions[MSG_GROUP_DEL] = "MSG_GROUP_DEL"
 	message_descriptions[MSG_GROUP_DEL_RESP] = "MSG_GROUP_DEL_RESP"
+	message_descriptions[MSG_SERVER_REGISTER_STORAGE] = "MSG_SERVER_REGISTER_STORAGE"
 }
 
 type Command int

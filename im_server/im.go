@@ -27,17 +27,15 @@ import "github.com/garyburd/redigo/redis"
 import log "github.com/golang/glog"
 import "database/sql"
 import _ "github.com/go-sql-driver/mysql"
+import "math/rand"
 
 var server_id string
 
-//group storage server
+//storage server
 var storage_channels []*StorageChannel
 
 //route server
 var route_channels []*Channel
-
-//storage server
-var channels []*Channel
 
 var route *Route
 var redis_pool *redis.Pool
@@ -95,24 +93,10 @@ func GetGroupStorageConnPool(gid int64) *StorageConnPool {
 	return storage_pools[index]
 }
 
-func GetGroupStorageChannel(gid int64) *StorageChannel {
-	index := gid%int64(len(storage_channels))
-	return storage_channels[index]
-}
-
-func GetChannel(uid int64) *Channel{
-	index := uid%int64(len(route_channels))
+func GetRouteChannel() *Channel{
+	rand.Seed(time.Now().Unix())
+	index := rand.Intn(len(route_channels))
 	return route_channels[index]
-}
-
-func GetRoomChannel(room_id int64) *Channel {
-	index := room_id%int64(len(route_channels))
-	return route_channels[index]
-}
-
-func GetUserStorageChannel(uid int64) *Channel {
-	index := uid%int64(len(channels))
-	return channels[index]
 }
 
 func SaveGroupMessage(appid int64, gid int64, device_id int64, m *Message) (int64, error) {
@@ -164,28 +148,14 @@ func SaveMessage(appid int64, uid int64, device_id int64, m *Message) (int64, er
 
 func Send0Message(appid int64, uid int64, msg *Message) bool {
 	amsg := &AppMessage{appid:appid, receiver:uid, msgid:0, msg:msg}
-	SendAppMessage(amsg, uid)
+	SendAppMessage(amsg)
 	return true
 }
 
-func SendAppMessage(amsg *AppMessage, uid int64) bool {
-	channel := GetChannel(uid)
+func SendAppMessage(amsg *AppMessage) bool {
+	channel := GetRouteChannel()
 	channel.Publish(amsg)
 
-	clients := route.FindClientSet(uid)
-	if len(clients) == 0 {
-		log.Warningf("can't dispatch app message, appid:%d uid:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
-		return false
-	}
-	if clients != nil {
-		for c, _ := range(clients) {
-			if amsg.msgid > 0 {
-				c.ewt <- &EMessage{msgid:amsg.msgid, msg:amsg.msg}
-			} else {
-				c.wt <- amsg.msg
-			}
-		}
-	}
 	return true
 }
 
@@ -199,14 +169,8 @@ func DispatchAppMessage(amsg *AppMessage) {
 	}
 	for c, _ := range(clients) {
 		//自己在同一台设备上发出的消息，不再发送回去
-		if amsg.msg.cmd == MSG_IM || amsg.msg.cmd == MSG_GROUP_IM {
+		if amsg.msg.cmd == MSG_IM || amsg.msg.cmd == MSG_GROUP_IM || amsg.msg.cmd == MSG_ROOM_IM {
 			m := amsg.msg.body.(*IMMessage)
-			if m.sender == amsg.receiver && amsg.device_id == c.device_ID {
-				continue
-			}
-		}
-		if amsg.msg.cmd == MSG_CUSTOMER_SERVICE {
-			m := amsg.msg.body.(*CustomerServiceMessage)
 			if m.sender == amsg.receiver && amsg.device_id == c.device_ID {
 				continue
 			}
@@ -220,49 +184,11 @@ func DispatchAppMessage(amsg *AppMessage) {
 	}
 }
 
-func DispatchRoomMessage(amsg *AppMessage) {
-	log.Info("dispatch room message", Command(amsg.msg.cmd))
-	room_id := amsg.receiver
-	clients := route.FindRoomClientSet(room_id)
-
-	if len(clients) == 0 {
-		log.Warningf("can't dispatch room message, appid:%d room id:%d cmd:%s", amsg.appid, amsg.receiver, Command(amsg.msg.cmd))
-		return
-	}
-	for c, _ := range(clients) {
-		c.wt <- amsg.msg
-	}	
-}
-
-func DispatchGroupMessage(amsg *AppMessage) {
-	log.Info("dispatch group message:", Command(amsg.msg.cmd))
-	group := OpGetGroup(amsg.receiver)
-	if group == nil {
-		log.Warningf("can't dispatch group message, appid:%d group id:%d", amsg.appid, amsg.receiver)
-		return
-	}
-
-	members := OpGetGroupMembers(group.gid)
-	for _, member := range members {
-	    clients := route.FindClientSet(member)
-		if len(clients) == 0 {
-			continue
-		}
-		 
-		if clients != nil {
-			for c, _ := range(clients) {
-				if amsg.msg.cmd == MSG_GROUP_IM {
-					im := amsg.msg.body.(*IMMessage)
-					
-					//不再发送给发送者所在的设备
-					if c.uid == im.sender && c.device_ID == amsg.device_id {
-						continue
-					}
-				}
-				c.ewt <- &EMessage{msgid:amsg.msgid, msg:amsg.msg}
-			}
-		}
-	}
+func RouteMessage(msg *Message) {
+	log.Info("route message:", Command(msg.cmd))
+	
+	channel := GetRouteChannel()
+	channel.PublishMessage(msg)
 }
 
 func DialStorageFun(addr string) func()(*StorageConn, error) {
@@ -327,21 +253,15 @@ func main() {
 	storage_channels = make([]*StorageChannel, 0)
 
 	for _, addr := range(config.storage_addrs) {
-		sc := NewStorageChannel(addr, DispatchGroupMessage)
+		sc := NewStorageChannel(addr, RouteMessage)
 		sc.Start()
+		sc.Register()
 		storage_channels = append(storage_channels, sc)
-	}
-
-	channels = make([]*Channel, 0)
-	for _, addr := range(config.storage_addrs) {
-		channel := NewChannel(addr, DispatchAppMessage, nil)
-		channel.Start()
-		channels = append(channels, channel)
 	}
 
 	route_channels = make([]*Channel, 0)
 	for _, addr := range(config.route_addrs) {
-		channel := NewChannel(addr, DispatchAppMessage, DispatchRoomMessage)
+		channel := NewChannel(addr, DispatchAppMessage)
 		channel.Start()
 		route_channels = append(route_channels, channel)
 	}

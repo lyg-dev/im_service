@@ -5,7 +5,6 @@ import (
 )
 
 import "github.com/garyburd/redigo/redis"
-import log "github.com/golang/glog"
 
 //获取用户客户端设备连接机器
 func GetUserServers(uid int64) []string {

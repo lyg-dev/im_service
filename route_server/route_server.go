@@ -163,7 +163,7 @@ func (client *Client) HandlePublishRoom(amsg *AppMessage) {
 			device_id : amsg.device_id,
 			msg : amsg.msg,
 		}
-		msg := &Message{cmd:MSG_PUBLISH_ROOM, body: amsg1}
+		msg := &Message{cmd:MSG_PUBLISH, body: amsg1}
 		
 		clients_mutex.Lock()
 		defer clients_mutex.Unlock()
@@ -197,7 +197,7 @@ func (client *Client) HandlePublishGroup(amsg *AppMessage) {
 			device_id : amsg.device_id,
 			msg : amsg.msg,
 		}
-		msg := &Message{cmd:MSG_PUBLISH_GROUP, body: amsg1}
+		msg := &Message{cmd:MSG_PUBLISH, body: amsg1}
 		
 		clients_mutex.Lock()
 		defer clients_mutex.Unlock()

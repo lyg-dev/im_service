@@ -34,7 +34,6 @@ func (client *RoomClient) Logout(route *Route) {
 	defer client.room_mutex.Unlock()
 	
 	for room_id, _ := range client.room_ids {
-		route.RemoveRoomClient(room_id, client.Client())
 		OpRemoveRoomMember(room_id, client.uid)
 		delete(client.room_ids, room_id)
 	}
@@ -73,7 +72,6 @@ func (client *RoomClient) HandleEnterRoom(room *Room){
 	}
 
 	client.room_ids[room_id] = struct{}{}
-	route.AddRoomClient(room_id, client.Client())
 	
 	OpAddRoomMember(room_id, client.uid)
 }
@@ -100,8 +98,6 @@ func (client *RoomClient) HandleLeaveRoom(room *Room) {
 	if _, ok := client.room_ids[room_id]; !ok {
 		return
 	}
-
-	route.RemoveRoomClient(room_id, client.Client())
 	
 	OpRemoveRoomMember(room_id, client.uid)
 	
@@ -122,7 +118,7 @@ func (client *RoomClient) HandleRoomIM(room_im *RoomMessage, seq int) {
 	m := &Message{cmd:MSG_ROOM_IM, body:room_im}
 
 	amsg := &AppMessage{appid:client.appid, receiver:room_id, msg:m}
-	channel := GetRoomChannel(room_id)
+	channel := GetRouteChannel()
 	channel.PublishRoom(amsg)
 
 	client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}
@@ -142,7 +138,7 @@ func (client *RoomClient) HandleTransmitRoom(room_im *RoomMessage, seq int) {
 	m := &Message{cmd:MSG_TRANSMIT_ROOM, body:room_im}
 
 	amsg := &AppMessage{appid:client.appid, receiver:room_id, msg:m}
-	channel := GetRoomChannel(room_id)
+	channel := GetRouteChannel()
 	channel.PublishRoom(amsg)
 
 	client.wt <- &Message{cmd: MSG_ACK, body: &MessageACK{int32(seq)}}

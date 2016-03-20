@@ -27,16 +27,28 @@ import log "github.com/golang/glog"
 type StorageChannel struct {
 	addr            string
 	mutex           sync.Mutex
-	dispatch_group  func(*AppMessage)
+	dispatch  func(*Message)
 	wt              chan *Message
 }
 
-func NewStorageChannel(addr string, f func(*AppMessage)) *StorageChannel {
+func NewStorageChannel(addr string, f func(*Message)) *StorageChannel {
 	channel := new(StorageChannel)
-	channel.dispatch_group = f
+	channel.dispatch = f
 	channel.addr = addr
 	channel.wt = make(chan *Message, 10)
 	return channel
+}
+
+func (sc *StorageChannel) Register() {
+	msg := &ServerID{
+		serverid : config.server_id,
+	}
+	
+	m := &Message{}
+	m.cmd = MSG_SERVER_REGISTER_STORAGE
+	m.body = msg
+	
+	sc.wt <- m
 }
 
 func (sc *StorageChannel) RunOnce(conn *net.TCPConn) {
@@ -53,13 +65,8 @@ func (sc *StorageChannel) RunOnce(conn *net.TCPConn) {
 				return
 			}
 			log.Info("stroage channel recv message:", Command(msg.cmd))
-			if msg.cmd == MSG_PUBLISH_GROUP {
-				amsg := msg.body.(*AppMessage)
-				if sc.dispatch_group != nil {
-					sc.dispatch_group(amsg)
-				}
-			} else {
-				log.Error("unknown message cmd:", msg.cmd)
+			if sc.dispatch != nil {
+				sc.dispatch(msg)
 			}
 		}
 	}()
