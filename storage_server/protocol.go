@@ -70,8 +70,81 @@ const MSG_CUSTOMER_SERVICE = 23
 //透传消息
 const MSG_TRANSMIT_USER = 24
 const MSG_TRANSMIT_GROUP = 25
+const MSG_TRANSMIT_ROOM = 26
 
 const MSG_VOIP_CONTROL = 64
+
+//路由服务器消息
+const MSG_PUBLISH_OFFLINE = 128
+const MSG_SUBSCRIBE = 130
+const MSG_UNSUBSCRIBE = 131
+const MSG_PUBLISH = 132
+
+const MSG_SUBSCRIBE_GROUP = 133
+const MSG_UNSUBSCRIBE_GROUP = 134
+const MSG_PUBLISH_GROUP = 135
+
+const MSG_SUBSCRIBE_ROOM = 136
+const MSG_UNSUBSCRIBE_ROOM = 137
+const MSG_PUBLISH_ROOM = 138
+
+const MSG_SERVER_REGISTER = 139
+const MSG_SERVER_REGISTER_STORAGE = 140
+
+//存储服务器消息
+const MSG_SAVE_AND_ENQUEUE = 200
+const MSG_DEQUEUE = 201
+const MSG_LOAD_OFFLINE = 202
+const MSG_LOAD_GROUP_OFFLINE = 203
+const MSG_RESULT = 204
+const MSG_LOAD_HISTORY = 205
+
+const MSG_SAVE_AND_ENQUEUE_GROUP = 206
+const MSG_DEQUEUE_GROUP = 207
+
+
+//主从同步消息
+const MSG_SYNC_BEGIN = 210
+const MSG_SYNC_MESSAGE = 211
+const MSG_SYNC_MESSAGE_BATCH = 212
+
+//内部文件存储使用
+const MSG_GROUP_IM_LIST = 252
+const MSG_GROUP_ACK_IN = 253
+const MSG_OFFLINE = 254
+const MSG_ACK_IN = 255
+
+//好友
+const MSG_CONTACT_INVITE = 10200
+const MSG_CONTACT_INVITE_RESP = 10201
+
+const MSG_CONTACT_ACCEPT = 10202
+const MSG_CONTACT_ACCEPT_RESP = 10203
+
+const MSG_CONTACT_REFUSE = 10204
+const MSG_CONTACT_REFUSE_RESP = 10205
+
+const MSG_CONTACT_DEL = 10206
+const MSG_CONTACT_DEL_RESP = 10207
+
+const MSG_CONTACT_BLACK = 10208
+const MSG_CONTACT_BLACK_RESP = 10209
+const MSG_CONTACT_UNBLACK = 10210
+const MSG_CONTACT_UNBLACK_RESP = 10211
+
+//群
+const MSG_GROUP_CREATE = 10300  //创建
+const MSG_GROUP_CREATE_RESP = 10301
+const MSG_GROUP_SELF_JOIN = 10302 //加入
+const MSG_GROUP_SELF_JOIN_RESP = 10303
+const MSG_GROUP_INVITE_JOIN = 10304 //群成员拉人入群
+const MSG_GROUP_INVITE_JOIN_RESP =10305
+const MSG_GROUP_REMOVE = 10306 //移除
+const MSG_GROUP_REMOVE_RESP = 10307
+const MSG_GROUP_QUIT = 10308 //退出，群主不可以退出
+const MSG_GROUP_QUIT_RESP = 10309
+const MSG_GROUP_DEL = 10310 //解散
+const MSG_GROUP_DEL_RESP = 10311
 
 //平台号
 const PLATFORM_IOS = 1
@@ -79,6 +152,27 @@ const PLATFORM_ANDROID = 2
 const PLATFORM_WEB = 3
 
 const DEFAULT_VERSION = 1
+
+
+//好友操作回调
+/*
+{
+	cmd : 1,
+	from: 1,
+	to : 2,
+	msg : "" //自定义
+}
+*/
+const CMD_CALLBACK_FRIEND_INVITE = 1 //被请求添加好友回调  {from: 1, to:2, reason: "加好友吧"}
+const CMD_CALLBACK_FRIEND_DEL = 2 //被删除好友回调	{from: 1, to: 2}
+const CMD_CALLBACK_FRIEND_ACCEPT = 3 //好友请求被接受回调	{from: 2, to:1}
+const CMD_CALLBACK_FRIEND_REFUSE = 4 //好友请求被拒绝回调	{from:2, to:1}
+const CMD_CALLBACK_FRIEND_ADD = 5 //成功添加好友回调		{from:2, to: 1}
+
+//群操作回调
+const CMD_CALLBACK_GROUP_REMOVE = 101 //被移除群
+const CMD_CALLBACK_GROUP_JOIN = 102 //被加入群
+const CMD_CALLBACK_GROUP_DEL = 103 //群被解散
 
 var message_descriptions map[int]string = make(map[int]string)
 
@@ -115,9 +209,101 @@ func init() {
 	vmessage_creators[MSG_IM] = func() IVersionMessage { return new(IMMessage) }
 	vmessage_creators[MSG_TRANSMIT_USER] = func() IVersionMessage { return new(IMMessage) }
 	vmessage_creators[MSG_TRANSMIT_GROUP] = func() IVersionMessage { return new(IMMessage) }
+	message_creators[MSG_TRANSMIT_ROOM] = func() IMessage { return &RoomMessage{new(RTMessage)} }
 
 	vmessage_creators[MSG_AUTH_STATUS] = func() IVersionMessage { return new(AuthenticationStatus) }
 
+	message_creators[MSG_SUBSCRIBE] = func()IMessage{return new(AppUserID)}
+	message_creators[MSG_UNSUBSCRIBE] = func()IMessage{return new(AppUserID)}
+	message_creators[MSG_PUBLISH] = func()IMessage{return new(AppMessage)}
+	message_creators[MSG_PUBLISH_OFFLINE] = func()IMessage{return new(AppMessage)}
+
+	message_creators[MSG_SUBSCRIBE_GROUP] = func()IMessage{return new(AppGroupMemberID)}
+	message_creators[MSG_UNSUBSCRIBE_GROUP] = func()IMessage{return new(AppGroupMemberID)}
+	message_creators[MSG_PUBLISH_GROUP] = func()IMessage{return new(AppMessage)}
+	
+	message_creators[MSG_SUBSCRIBE_ROOM] = func()IMessage{return new(AppRoomID)}
+	message_creators[MSG_UNSUBSCRIBE_ROOM] = func()IMessage{return new(AppRoomID)}
+	message_creators[MSG_PUBLISH_ROOM] = func()IMessage{return new(AppMessage)}
+	
+	message_creators[MSG_SERVER_REGISTER] = func() IMessage { return new(ServerID) }
+	message_creators[MSG_SERVER_REGISTER_STORAGE] = func() IMessage { return new(ServerID) }
+	
+	message_creators[MSG_CONTACT_ACCEPT] = func() IMessage { return new(ContactAccept) }
+	message_creators[MSG_CONTACT_ACCEPT_RESP] = func() IMessage { return new(ContactAcceptResp) }
+	message_creators[MSG_CONTACT_INVITE] = func() IMessage { return new(ContactInvite) }
+	message_creators[MSG_CONTACT_INVITE_RESP] = func() IMessage { return new(ContactInviteResp) }
+	message_creators[MSG_CONTACT_REFUSE] = func() IMessage { return new(ContactRefuse) }
+	message_creators[MSG_CONTACT_REFUSE_RESP] = func() IMessage { return new(ContactRefuseResp) }
+	message_creators[MSG_CONTACT_DEL] = func() IMessage { return new(ContactDel) }
+	message_creators[MSG_CONTACT_DEL_RESP] = func() IMessage { return new(ContactDelResp) }
+	message_creators[MSG_CONTACT_BLACK] = func() IMessage { return new(ContactBlack) }
+	message_creators[MSG_CONTACT_BLACK_RESP] = func() IMessage { return new(ContactBlackResp) }
+	message_creators[MSG_CONTACT_UNBLACK] = func() IMessage { return new(ContactUnBlack) }
+	message_creators[MSG_CONTACT_UNBLACK_RESP] = func() IMessage { return new(ContactUnBlackResp) }
+	
+	message_creators[MSG_GROUP_CREATE] = func() IMessage { return new(GroupCreate) }
+	message_creators[MSG_GROUP_CREATE_RESP] = func() IMessage { return new(GroupCreateResp) }
+	message_creators[MSG_GROUP_SELF_JOIN] = func() IMessage { return new(GroupSelfJoin) }
+	message_creators[MSG_GROUP_SELF_JOIN_RESP] = func() IMessage { return new(SimpleResp) }
+	message_creators[MSG_GROUP_INVITE_JOIN] = func() IMessage { return new(GroupInviteJoin) }
+	message_creators[MSG_GROUP_INVITE_JOIN_RESP] = func() IMessage { return new(SimpleResp) }
+	message_creators[MSG_GROUP_REMOVE] = func() IMessage { return new(GroupRemove) }
+	message_creators[MSG_GROUP_REMOVE_RESP] = func() IMessage { return new(SimpleResp) }
+	message_creators[MSG_GROUP_QUIT] = func() IMessage { return new(GroupQuit) }
+	message_creators[MSG_GROUP_QUIT_RESP] = func() IMessage { return new(SimpleResp) }
+	message_creators[MSG_GROUP_DEL] = func() IMessage { return new(GroupDel) }
+	message_creators[MSG_GROUP_DEL_RESP] = func() IMessage { return new(SimpleResp) }
+	
+	message_creators[MSG_SAVE_AND_ENQUEUE] = func()IMessage{return new(SAEMessage)}
+	message_creators[MSG_DEQUEUE] = func()IMessage{return new(DQMessage)}
+	message_creators[MSG_LOAD_OFFLINE] = func()IMessage{return new(LoadOffline)}
+	message_creators[MSG_LOAD_GROUP_OFFLINE] = func()IMessage{return new(LoadGroupOffline)}
+	message_creators[MSG_RESULT] = func()IMessage{return new(MessageResult)}
+	message_creators[MSG_LOAD_HISTORY] = func()IMessage{return new(LoadHistory)}
+	
+	message_creators[MSG_SAVE_AND_ENQUEUE_GROUP] = func()IMessage{return new(SAEMessage)}
+	message_creators[MSG_DEQUEUE_GROUP] = func()IMessage{return new(DQGroupMessage)}
+
+	message_creators[MSG_GROUP_IM_LIST] = func()IMessage{return new(GroupOfflineMessage)}
+	message_creators[MSG_GROUP_ACK_IN] = func()IMessage{return new(GroupOfflineMessage)}
+
+	message_creators[MSG_OFFLINE] = func()IMessage{return new(OfflineMessage)}
+	message_creators[MSG_ACK_IN] = func()IMessage{return new(MessageACKIn)}
+
+	message_creators[MSG_SYNC_BEGIN] = func()IMessage{return new(SyncCursor)}
+	message_creators[MSG_SYNC_MESSAGE] = func()IMessage{return new(EMessage)}
+	message_creators[MSG_SYNC_MESSAGE_BATCH] = func()IMessage{return new(MessageBatch)}
+
+	message_descriptions[MSG_SAVE_AND_ENQUEUE] = "MSG_SAVE_AND_ENQUEUE"
+	message_descriptions[MSG_DEQUEUE] = "MSG_DEQUEUE"
+	message_descriptions[MSG_LOAD_OFFLINE] = "MSG_LOAD_OFFLINE"
+	message_descriptions[MSG_RESULT] = "MSG_RESULT"
+	message_descriptions[MSG_LOAD_HISTORY] = "MSG_LOAD_HISTORY"
+
+	message_descriptions[MSG_SAVE_AND_ENQUEUE_GROUP] = "MSG_SAVE_AND_ENQUEUE_GROUP"
+	message_descriptions[MSG_DEQUEUE_GROUP] = "MSG_DEQUEUE_GROUP"
+
+	message_descriptions[MSG_SYNC_BEGIN] = "MSG_SYNC_BEGIN"
+	message_descriptions[MSG_SYNC_MESSAGE] = "MSG_SYNC_MESSAGE"
+	message_descriptions[MSG_SYNC_MESSAGE_BATCH] = "MSG_SYNC_MESSAGE_BATCH"
+	
+
+	message_descriptions[MSG_PUBLISH_OFFLINE] = "MSG_PUBLISH_OFFLINE"
+	message_descriptions[MSG_SUBSCRIBE] = "MSG_SUBSCRIBE"
+	message_descriptions[MSG_UNSUBSCRIBE] = "MSG_UNSUBSCRIBE"
+	message_descriptions[MSG_PUBLISH] = "MSG_PUBLISH"
+
+	message_descriptions[MSG_SUBSCRIBE_GROUP] = "MSG_SUBSCRIBE_GROUP"
+	message_descriptions[MSG_UNSUBSCRIBE_GROUP] = "MSG_UNSUBSCRIBE_GROUP"
+	message_descriptions[MSG_PUBLISH_GROUP] = "MSG_PUBLISH_GROUP"
+
+	message_descriptions[MSG_SUBSCRIBE_ROOM] = "MSG_SUBSCRIBE_ROOM"
+	message_descriptions[MSG_UNSUBSCRIBE_ROOM] = "MSG_UNSUBSCRIBE_ROOM"
+	message_descriptions[MSG_PUBLISH_ROOM] = "MSG_PUBLISH_ROOM"
+	
+	message_descriptions[MSG_SERVER_REGISTER] = "MSG_SERVER_REGISTER"
+	
 	message_descriptions[MSG_AUTH] = "MSG_AUTH"
 	message_descriptions[MSG_AUTH_STATUS] = "MSG_AUTH_STATUS"
 	message_descriptions[MSG_IM] = "MSG_IM"
@@ -142,6 +328,34 @@ func init() {
 	message_descriptions[MSG_VOIP_CONTROL] = "MSG_VOIP_CONTROL"
 	message_descriptions[MSG_TRANSMIT_USER] = "MSG_TRANSMIT_USER"
 	message_descriptions[MSG_TRANSMIT_GROUP] = "MSG_TRANSMIT_GROUP"
+	message_descriptions[MSG_TRANSMIT_ROOM] = "MSG_TRANSMIT_ROOM"
+	
+	message_descriptions[MSG_CONTACT_ACCEPT] = "MSG_CONTACT_ACCEPT"
+	message_descriptions[MSG_CONTACT_ACCEPT_RESP] = "MSG_CONTACT_ACCEPT_RESP"
+	message_descriptions[MSG_CONTACT_INVITE] = "MSG_CONTACT_INVITE"
+	message_descriptions[MSG_CONTACT_INVITE_RESP] = "MSG_CONTACT_INVITE_RESP"
+	message_descriptions[MSG_CONTACT_REFUSE] = "MSG_CONTACT_REFUSE"
+	message_descriptions[MSG_CONTACT_REFUSE_RESP] = "MSG_CONTACT_REFUSE_RESP"
+	message_descriptions[MSG_CONTACT_DEL] = "MSG_CONTACT_DEL"
+	message_descriptions[MSG_CONTACT_DEL_RESP] = "MSG_CONTACT_DEL_RESP"
+	message_descriptions[MSG_CONTACT_BLACK] = "MSG_CONTACT_BLACK"
+	message_descriptions[MSG_CONTACT_BLACK_RESP] = "MSG_CONTACT_BLACK_RESP"
+	message_descriptions[MSG_CONTACT_UNBLACK] = "MSG_CONTACT_UNBLACK"
+	message_descriptions[MSG_CONTACT_UNBLACK_RESP] = "MSG_CONTACT_UNBLACK_RESP"
+	
+	message_descriptions[MSG_GROUP_CREATE] = "MSG_GROUP_CREATE"
+	message_descriptions[MSG_GROUP_CREATE_RESP] = "MSG_GROUP_CREATE_RESP"
+	message_descriptions[MSG_GROUP_SELF_JOIN] = "MSG_GROUP_SELF_JOIN"
+	message_descriptions[MSG_GROUP_SELF_JOIN_RESP] = "MSG_GROUP_SELF_JOIN_RESP"
+	message_descriptions[MSG_GROUP_INVITE_JOIN] = "MSG_GROUP_INVITE_JOIN"
+	message_descriptions[MSG_GROUP_INVITE_JOIN_RESP] = "MSG_GROUP_INVITE_JOIN_RESP"
+	message_descriptions[MSG_GROUP_REMOVE] = "MSG_GROUP_REMOVE"
+	message_descriptions[MSG_GROUP_REMOVE_RESP] = "MSG_GROUP_REMOVE_RESP"
+	message_descriptions[MSG_GROUP_QUIT] = "MSG_GROUP_QUIT"
+	message_descriptions[MSG_GROUP_QUIT_RESP] = "MSG_GROUP_QUIT_RESP"
+	message_descriptions[MSG_GROUP_DEL] = "MSG_GROUP_DEL"
+	message_descriptions[MSG_GROUP_DEL_RESP] = "MSG_GROUP_DEL_RESP"
+	message_descriptions[MSG_SERVER_REGISTER_STORAGE] = "MSG_SERVER_REGISTER_STORAGE"
 }
 
 type Command int
@@ -191,7 +405,9 @@ func (message *Message) FromData(buff []byte) bool {
 	cmd := message.cmd
 	if creator, ok := message_creators[cmd]; ok {
 		c := creator()
+		log.Infof("cmd: %d, %+v", cmd, c)
 		r := c.FromData(buff)
+		log.Infof("cmd: %d, %+v", cmd, c)
 		message.body = c
 		return r
 	}
@@ -203,6 +419,471 @@ func (message *Message) FromData(buff []byte) bool {
 	}
 
 	return len(buff) == 0
+}
+
+type SyncCursor struct {
+	msgid int64
+}
+
+func (cursor *SyncCursor) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, cursor.msgid)
+	return buffer.Bytes()
+}
+
+func (cursor *SyncCursor) FromData(buff []byte) bool {
+	if len(buff) < 8 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &cursor.msgid)
+	return true
+}
+
+type EMessage struct {
+	msgid int64
+	device_id int64
+	msg   *Message
+}
+
+func (emsg *EMessage) ToData() []byte {
+	if emsg.msg == nil {
+		return nil
+	}
+
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, emsg.msgid)
+	binary.Write(buffer, binary.BigEndian, emsg.device_id)
+	mbuffer := new(bytes.Buffer)
+	WriteMessage(mbuffer, emsg.msg)
+	msg_buf := mbuffer.Bytes()
+	var l int16 = int16(len(msg_buf))
+	binary.Write(buffer, binary.BigEndian, l)
+	buffer.Write(msg_buf)
+	buf := buffer.Bytes()
+	return buf
+	
+}
+
+func (emsg *EMessage) FromData(buff []byte) bool {
+	if len(buff) < 18 {
+		return false
+	}
+
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &emsg.msgid)
+	binary.Read(buffer, binary.BigEndian, &emsg.device_id)
+	var l int16
+	binary.Read(buffer, binary.BigEndian, &l)
+	if int(l) > buffer.Len() {
+		return false
+	}
+
+	msg_buf := make([]byte, l)
+	buffer.Read(msg_buf)
+	mbuffer := bytes.NewBuffer(msg_buf)
+	//recusive
+	msg := ReceiveMessage(mbuffer)
+	if msg == nil {
+		return false
+	}
+	emsg.msg = msg
+
+	return true
+}
+
+type MessageBatch struct {
+	first_id int64
+	last_id  int64
+	msgs     []*Message
+}
+
+func (batch *MessageBatch) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, batch.first_id)
+	binary.Write(buffer, binary.BigEndian, batch.last_id)
+	count := int32(len(batch.msgs))
+	binary.Write(buffer, binary.BigEndian, count)
+
+	for _, m := range batch.msgs {
+		SendMessage(buffer, m)
+	}
+
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (batch *MessageBatch) FromData(buff []byte) bool {
+	if len(buff) < 18 {
+		return false
+	}
+
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &batch.first_id)
+	binary.Read(buffer, binary.BigEndian, &batch.last_id)
+
+	var count int32
+	binary.Read(buffer, binary.BigEndian, &count)
+
+	batch.msgs = make([]*Message, 0, count)
+	for i := 0; i < int(count); i++ {
+		msg := ReceiveMessage(buffer)
+		if msg == nil {
+			return false
+		}
+		batch.msgs = append(batch.msgs, msg)
+	}
+
+	return true
+}
+
+type OfflineMessage struct {
+	appid    int64
+	receiver int64
+	msgid    int64
+	device_id int64
+	prev_msgid  int64
+}
+
+
+func (off *OfflineMessage) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, off.appid)
+	binary.Write(buffer, binary.BigEndian, off.receiver)
+	binary.Write(buffer, binary.BigEndian, off.msgid)
+	binary.Write(buffer, binary.BigEndian, off.device_id)
+	binary.Write(buffer, binary.BigEndian, off.prev_msgid)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (off *OfflineMessage) FromData(buff []byte) bool {
+	if len(buff) < 32 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &off.appid)
+	binary.Read(buffer, binary.BigEndian, &off.receiver)
+	binary.Read(buffer, binary.BigEndian, &off.msgid)
+	if len(buff) == 40 {
+		binary.Read(buffer, binary.BigEndian, &off.device_id)
+	}
+	binary.Read(buffer, binary.BigEndian, &off.prev_msgid)
+	return true
+}
+
+type MessageACKIn struct {
+	appid    int64
+	receiver int64
+	msgid    int64
+	device_id  int64
+}
+
+func (off *MessageACKIn) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, off.appid)
+	binary.Write(buffer, binary.BigEndian, off.receiver)
+	binary.Write(buffer, binary.BigEndian, off.msgid)
+	binary.Write(buffer, binary.BigEndian, off.device_id)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (off *MessageACKIn) FromData(buff []byte) bool {
+	if len(buff) < 32 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &off.appid)
+	binary.Read(buffer, binary.BigEndian, &off.receiver)
+	binary.Read(buffer, binary.BigEndian, &off.msgid)
+	binary.Read(buffer, binary.BigEndian, &off.device_id)
+	return true
+}
+
+
+type DQMessage struct {
+	appid    int64
+	receiver int64
+	msgid    int64
+	device_id int64
+}
+
+func (dq *DQMessage) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, dq.appid)
+	binary.Write(buffer, binary.BigEndian, dq.receiver)
+	binary.Write(buffer, binary.BigEndian, dq.msgid)
+	binary.Write(buffer, binary.BigEndian, dq.device_id)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (dq *DQMessage) FromData(buff []byte) bool {
+	if len(buff) < 32 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &dq.appid)
+	binary.Read(buffer, binary.BigEndian, &dq.receiver)
+	binary.Read(buffer, binary.BigEndian, &dq.msgid)
+	binary.Read(buffer, binary.BigEndian, &dq.device_id)
+	return true
+}
+
+type DQGroupMessage struct {
+	appid    int64
+	receiver int64
+	msgid    int64
+	gid      int64
+	device_id int64
+}
+
+func (dq *DQGroupMessage) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, dq.appid)
+	binary.Write(buffer, binary.BigEndian, dq.receiver)
+	binary.Write(buffer, binary.BigEndian, dq.msgid)
+	binary.Write(buffer, binary.BigEndian, dq.gid)
+	binary.Write(buffer, binary.BigEndian, dq.device_id)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (dq *DQGroupMessage) FromData(buff []byte) bool {
+	if len(buff) < 40 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &dq.appid)
+	binary.Read(buffer, binary.BigEndian, &dq.receiver)
+	binary.Read(buffer, binary.BigEndian, &dq.msgid)
+	binary.Read(buffer, binary.BigEndian, &dq.gid)
+	binary.Read(buffer, binary.BigEndian, &dq.device_id)
+	return true
+}
+
+
+type GroupOfflineMessage struct {
+	appid    int64
+	receiver int64
+	msgid    int64
+	gid      int64
+	device_id int64
+	prev_msgid  int64
+}
+
+func (off *GroupOfflineMessage) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, off.appid)
+	binary.Write(buffer, binary.BigEndian, off.receiver)
+	binary.Write(buffer, binary.BigEndian, off.msgid)
+	binary.Write(buffer, binary.BigEndian, off.gid)
+	binary.Write(buffer, binary.BigEndian, off.device_id)
+	binary.Write(buffer, binary.BigEndian, off.prev_msgid)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (off *GroupOfflineMessage) FromData(buff []byte) bool {
+	if len(buff) < 40 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &off.appid)
+	binary.Read(buffer, binary.BigEndian, &off.receiver)
+	binary.Read(buffer, binary.BigEndian, &off.msgid)
+	binary.Read(buffer, binary.BigEndian, &off.gid)
+	if len(buff) == 48 {
+		binary.Read(buffer, binary.BigEndian, &off.device_id)
+	}
+	binary.Read(buffer, binary.BigEndian, &off.prev_msgid)
+	return true
+}
+
+
+type SAEMessage struct {
+	msg       *Message
+	appid     int64
+	receiver  int64
+	device_id int64
+}
+
+func (sae *SAEMessage) ToData() []byte {
+	if sae.msg == nil {
+		return nil
+	}
+
+	if sae.msg.cmd == MSG_SAVE_AND_ENQUEUE {
+		log.Warning("recusive sae message")
+		return nil
+	}
+
+	buffer := new(bytes.Buffer)
+	mbuffer := new(bytes.Buffer)
+	WriteMessage(mbuffer, sae.msg)
+	msg_buf := mbuffer.Bytes()
+	var l int16 = int16(len(msg_buf))
+	binary.Write(buffer, binary.BigEndian, l)
+	buffer.Write(msg_buf)
+
+	binary.Write(buffer, binary.BigEndian, sae.appid)
+	binary.Write(buffer, binary.BigEndian, sae.receiver)
+	binary.Write(buffer, binary.BigEndian, sae.device_id)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (sae *SAEMessage) FromData(buff []byte) bool {
+	if len(buff) < 4 {
+		return false
+	}
+
+	buffer := bytes.NewBuffer(buff)
+	var l int16
+	binary.Read(buffer, binary.BigEndian, &l)
+	if int(l) > buffer.Len() {
+		return false
+	}
+
+	msg_buf := make([]byte, l)
+	buffer.Read(msg_buf)
+	mbuffer := bytes.NewBuffer(msg_buf)
+	//recusive
+	msg := ReceiveMessage(mbuffer)
+	if msg == nil {
+		return false
+	}
+	sae.msg = msg
+	
+	if buffer.Len() < 24 {
+		return false
+	}
+	binary.Read(buffer, binary.BigEndian, &sae.appid)
+	binary.Read(buffer, binary.BigEndian, &sae.receiver)
+	binary.Read(buffer, binary.BigEndian, &sae.device_id)
+	return true
+}
+
+type MessageResult struct {
+	status int32
+	content []byte
+}
+func (result *MessageResult) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, result.status)
+	buffer.Write(result.content)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (result *MessageResult) FromData(buff []byte) bool {
+	if len(buff) < 4 {
+		return false
+	}
+
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &result.status)
+	result.content = buff[4:]
+	return true
+}
+
+type LoadHistory struct {
+	app_uid AppUserID
+	limit int32
+}
+
+
+func (lh *LoadHistory) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, lh.app_uid.appid)
+	binary.Write(buffer, binary.BigEndian, lh.app_uid.uid)
+	binary.Write(buffer, binary.BigEndian, lh.limit)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (lh *LoadHistory) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &lh.app_uid.appid)
+	binary.Read(buffer, binary.BigEndian, &lh.app_uid.uid)
+	binary.Read(buffer, binary.BigEndian, &lh.limit)
+	return true
+}
+
+type LoadOffline struct {
+	appid  int64
+	uid    int64
+	device_id int64
+}
+
+func (lo *LoadOffline) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, lo.appid)
+	binary.Write(buffer, binary.BigEndian, lo.uid)
+	binary.Write(buffer, binary.BigEndian, lo.device_id)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (lo *LoadOffline) FromData(buff []byte) bool {
+	if len(buff) < 24 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &lo.appid)
+	binary.Read(buffer, binary.BigEndian, &lo.uid)
+	binary.Read(buffer, binary.BigEndian, &lo.device_id)
+	return true
+}
+
+
+type LoadGroupOffline struct {
+	appid  int64
+	gid    int64
+	uid    int64
+	device_id int64
+}
+
+func (lo *LoadGroupOffline) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, lo.appid)
+	binary.Write(buffer, binary.BigEndian, lo.gid)
+	binary.Write(buffer, binary.BigEndian, lo.uid)
+	binary.Write(buffer, binary.BigEndian, lo.device_id)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (lo *LoadGroupOffline) FromData(buff []byte) bool {
+	if len(buff) < 32 {
+		return false
+	}
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &lo.appid)
+	binary.Read(buffer, binary.BigEndian, &lo.gid)
+	binary.Read(buffer, binary.BigEndian, &lo.uid)
+	binary.Read(buffer, binary.BigEndian, &lo.device_id)
+	return true
+}
+
+type ServerID struct {
+	serverid string
+}
+
+func (id *ServerID) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	buffer.Write([]byte(id.serverid))
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (id *ServerID) FromData(buff []byte) bool {
+	id.serverid = string(buff)
+	return true
 }
 
 type RTMessage struct {
@@ -450,7 +1131,7 @@ func (ack *MessageACK) FromData(buff []byte) bool {
 type MessagePeerACK struct {
 	sender   int64
 	receiver int64
-	msgid    int64
+	msgid    int32
 }
 
 func (ack *MessagePeerACK) ToData() []byte {
@@ -463,7 +1144,7 @@ func (ack *MessagePeerACK) ToData() []byte {
 }
 
 func (ack *MessagePeerACK) FromData(buff []byte) bool {
-	if len(buff) < 24 {
+	if len(buff) < 20 {
 		return false
 	}
 	buffer := bytes.NewBuffer(buff)
@@ -757,6 +1438,642 @@ func (id *AppGroupMemberID) FromData(buff []byte) bool {
 	return true
 }
 
+type AppMessage struct {
+	appid    int64
+	receiver int64
+	msgid    int64
+	device_id int64
+	msg      *Message
+}
+
+
+func (amsg *AppMessage) ToData() []byte {
+	if amsg.msg == nil {
+		return nil
+	}
+
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, amsg.appid)
+	binary.Write(buffer, binary.BigEndian, amsg.receiver)
+	binary.Write(buffer, binary.BigEndian, amsg.msgid)
+	binary.Write(buffer, binary.BigEndian, amsg.device_id)
+	mbuffer := new(bytes.Buffer)
+	WriteMessage(mbuffer, amsg.msg)
+	msg_buf := mbuffer.Bytes()
+	var l int16 = int16(len(msg_buf))
+	binary.Write(buffer, binary.BigEndian, l)
+	buffer.Write(msg_buf)
+
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (amsg *AppMessage) FromData(buff []byte) bool {
+	if len(buff) < 34 {
+		return false
+	}
+
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &amsg.appid)
+	binary.Read(buffer, binary.BigEndian, &amsg.receiver)
+	binary.Read(buffer, binary.BigEndian, &amsg.msgid)
+	binary.Read(buffer, binary.BigEndian, &amsg.device_id)
+
+	var l int16
+	binary.Read(buffer, binary.BigEndian, &l)
+	if int(l) > buffer.Len() {
+		return false
+	}
+
+	msg_buf := make([]byte, l)
+	buffer.Read(msg_buf)
+
+	mbuffer := bytes.NewBuffer(msg_buf)
+	//recusive
+	msg := ReceiveMessage(mbuffer)
+	if msg == nil {
+		return false
+	}
+	amsg.msg = msg
+
+	return true
+}
+
+//邀请好友
+type ContactInvite struct {
+	sender int64
+	receiver int64
+	reason string
+}
+
+func (contactInvite *ContactInvite) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactInvite.sender)
+	binary.Write(buffer, binary.BigEndian, contactInvite.receiver)
+	buffer.Write([]byte(contactInvite.reason))
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactInvite *ContactInvite) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactInvite.sender)
+	binary.Read(buffer, binary.BigEndian, &contactInvite.receiver)
+	contactInvite.reason = string(buff[16:])
+	
+	return true
+}
+
+type ContactInviteResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactInviteResp *ContactInviteResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactInviteResp.status)
+	binary.Write(buffer, binary.BigEndian, contactInviteResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactInviteResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactInviteResp *ContactInviteResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactInviteResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactInviteResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactInviteResp.receiver)
+	
+	return true
+}
+
+//接受好友请求
+type ContactAccept struct {
+	sender int64
+	receiver int64
+}
+
+func (contactAccept *ContactAccept) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactAccept.sender)
+	binary.Write(buffer, binary.BigEndian, contactAccept.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactAccept *ContactAccept) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactAccept.sender)
+	binary.Read(buffer, binary.BigEndian, &contactAccept.receiver)
+	
+	return true
+}
+
+type ContactAcceptResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactAcceptResp *ContactAcceptResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactAcceptResp.status)
+	binary.Write(buffer, binary.BigEndian, contactAcceptResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactAcceptResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactAcceptResp *ContactAcceptResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactAcceptResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactAcceptResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactAcceptResp.receiver)
+	
+	return true
+}
+
+//拒绝好友请求
+type ContactRefuse struct {
+	sender int64
+	receiver int64
+}
+
+func (contactRefuse *ContactRefuse) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactRefuse.sender)
+	binary.Write(buffer, binary.BigEndian, contactRefuse.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactRefuse *ContactRefuse) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactRefuse.sender)
+	binary.Read(buffer, binary.BigEndian, &contactRefuse.receiver)
+	
+	return true
+}
+
+type ContactRefuseResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactRefuseResp *ContactRefuseResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactRefuseResp.status)
+	binary.Write(buffer, binary.BigEndian, contactRefuseResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactRefuseResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactRefuseResp *ContactRefuseResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactRefuseResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactRefuseResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactRefuseResp.receiver)
+	
+	return true
+}
+
+//删除好友
+type ContactDel struct {
+	sender int64
+	receiver int64
+}
+
+func (contactDel *ContactDel) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactDel.sender)
+	binary.Write(buffer, binary.BigEndian, contactDel.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactDel *ContactDel) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactDel.sender)
+	binary.Read(buffer, binary.BigEndian, &contactDel.receiver)
+	
+	return true
+}
+
+type ContactDelResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactDelResp *ContactDelResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactDelResp.status)
+	binary.Write(buffer, binary.BigEndian, contactDelResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactDelResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactDelResp *ContactDelResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactDelResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactDelResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactDelResp.receiver)
+	
+	return true
+}
+
+type ContactBlack struct {
+	sender int64
+	receiver int64
+}
+
+func (contactBlack *ContactBlack) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactBlack.sender)
+	binary.Write(buffer, binary.BigEndian, contactBlack.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactBlack *ContactBlack) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactBlack.sender)
+	binary.Read(buffer, binary.BigEndian, &contactBlack.receiver)
+	
+	return true
+}
+
+type ContactBlackResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactBlackResp *ContactBlackResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactBlackResp.status)
+	binary.Write(buffer, binary.BigEndian, contactBlackResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactBlackResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactBlackResp *ContactBlackResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactBlackResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactBlackResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactBlackResp.receiver)
+	
+	return true
+}
+
+type ContactUnBlack struct {
+	sender int64
+	receiver int64
+}
+
+func (contactUnBlack *ContactUnBlack) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactUnBlack.sender)
+	binary.Write(buffer, binary.BigEndian, contactUnBlack.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactUnBlack *ContactUnBlack) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlack.sender)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlack.receiver)
+	
+	return true
+}
+
+type ContactUnBlackResp struct {
+	status int32
+	sender int64
+	receiver int64
+}
+
+func (contactUnBlackResp *ContactUnBlackResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, contactUnBlackResp.status)
+	binary.Write(buffer, binary.BigEndian, contactUnBlackResp.sender)
+	binary.Write(buffer, binary.BigEndian, contactUnBlackResp.receiver)
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (contactUnBlackResp *ContactUnBlackResp) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.status)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.sender)
+	binary.Read(buffer, binary.BigEndian, &contactUnBlackResp.receiver)
+	
+	return true
+}
+
+type GroupCreate struct {
+	is_private int32
+	is_allow_invite int32
+	members []int64
+	title string
+	desc string
+}
+
+func (groupCreate *GroupCreate) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupCreate.is_private)
+	binary.Write(buffer, binary.BigEndian, groupCreate.is_allow_invite)
+	
+	var num int32
+	num = int32(len(groupCreate.members))
+	binary.Write(buffer, binary.BigEndian, num)
+	for _, member := range groupCreate.members {
+		binary.Write(buffer, binary.BigEndian, member)
+	}
+	
+	var t_len int32
+	t_len = int32(len(groupCreate.title))
+	binary.Write(buffer, binary.BigEndian, t_len)
+	var d_len int32
+	d_len = int32(len(groupCreate.desc))
+	binary.Write(buffer, binary.BigEndian, d_len)
+	buffer.Write([]byte(groupCreate.title))
+	buffer.Write([]byte(groupCreate.desc))
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupCreate *GroupCreate) FromData(buff []byte) bool {
+	if len(buff) < 20 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupCreate.is_private)
+	binary.Read(buffer, binary.BigEndian, &groupCreate.is_allow_invite)
+	
+	var num int32
+	binary.Read(buffer, binary.BigEndian, &num)
+	groupCreate.members = make([]int64, 0, 4)
+	var i int32
+	for i=0; i<num; i++ {
+		var member int64
+		binary.Read(buffer, binary.BigEndian, &member)
+		groupCreate.members = append(groupCreate.members, member)
+	}
+	
+	var t_len int32
+	binary.Read(buffer, binary.BigEndian, &t_len)
+	var d_len int32
+	binary.Read(buffer, binary.BigEndian, &d_len)
+	groupCreate.title = string(buff[28:(28+t_len)])
+	groupCreate.desc = string(buff[(28+t_len):])
+	
+	return true
+}
+
+type GroupCreateResp struct {
+	status int32
+	gid int64
+}
+
+func (groupCreateResp *GroupCreateResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupCreateResp.status)
+	binary.Write(buffer, binary.BigEndian, groupCreateResp.gid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupCreateResp *GroupCreateResp) FromData(buff []byte) bool {
+	if len(buff) < 12 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupCreateResp.status)
+	binary.Read(buffer, binary.BigEndian, &groupCreateResp.gid)
+	
+	return true
+}
+
+type GroupSelfJoin struct {
+	gid int64
+}
+
+func (groupSelfJoin *GroupSelfJoin) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupSelfJoin.gid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupSelfJoin *GroupSelfJoin) FromData(buff []byte) bool {
+	if len(buff) < 8 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupSelfJoin.gid)
+	
+	return true
+}
+
+type GroupInviteJoin struct {
+	gid int64
+	members []int64
+}
+
+func (groupInviteJoin *GroupInviteJoin) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupInviteJoin.gid)
+	
+	var num int32
+	num = int32(len(groupInviteJoin.members))
+	binary.Write(buffer, binary.BigEndian, num)
+	for _, member := range groupInviteJoin.members {
+		binary.Write(buffer, binary.BigEndian, member)
+	}
+	
+	buf := buffer.Bytes()
+	
+	return buf
+}
+
+func (groupInviteJoin *GroupInviteJoin) FromData(buff []byte) bool {
+	if len(buff) < 12 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupInviteJoin.gid)
+	
+	var num int32
+	binary.Read(buffer, binary.BigEndian, &num)
+	groupInviteJoin.members = make([]int64, 0, 4)
+	var i int32
+	for i=0; i<num; i++ {
+		var member int64
+		binary.Read(buffer, binary.BigEndian, &member)
+		groupInviteJoin.members = append(groupInviteJoin.members, member)
+	}
+	
+	return true
+}
+
+type SimpleResp struct {
+	status int32
+}
+
+func (simpleResp *SimpleResp) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	
+	binary.Write(buffer, binary.BigEndian, simpleResp.status)
+	
+	buf := buffer.Bytes()
+	
+	return buf
+}
+
+func (simpleResp *SimpleResp) FromData(buff []byte) bool {
+	if len(buff) < 4 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &simpleResp.status)
+	
+	return true
+}
+
+type GroupQuit struct {
+	gid int64
+}
+
+func (groupQuit *GroupQuit) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupQuit.gid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupQuit *GroupQuit) FromData(buff []byte) bool {
+	if len(buff) < 8 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupQuit.gid)
+	
+	return true
+}
+
+type GroupDel struct {
+	gid int64
+}
+
+func (groupDel *GroupDel) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupDel.gid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupDel *GroupDel) FromData(buff []byte) bool {
+	if len(buff) < 8 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupDel.gid)
+	
+	return true
+}
+
+type GroupRemove struct {
+	gid int64
+	uid int64
+}
+
+func (groupRemove *GroupRemove) ToData() []byte {
+	buffer := new(bytes.Buffer)
+	binary.Write(buffer, binary.BigEndian, groupRemove.gid)
+	binary.Write(buffer, binary.BigEndian, groupRemove.uid)
+	
+	buf := buffer.Bytes()
+	return buf
+}
+
+func (groupRemove *GroupRemove) FromData(buff []byte) bool {
+	if len(buff) < 16 {
+		return false
+	}
+	
+	buffer := bytes.NewBuffer(buff)
+	binary.Read(buffer, binary.BigEndian, &groupRemove.gid)
+	binary.Read(buffer, binary.BigEndian, &groupRemove.uid)
+	
+	return true
+}
+
 func WriteHeader(len int32, seq int32, cmd int32, version byte, buffer io.Writer) {
 	binary.Write(buffer, binary.BigEndian, len)
 	binary.Write(buffer, binary.BigEndian, seq)
@@ -777,7 +2094,6 @@ func ReadHeader(buff []byte) (int, int, int, int) {
 	return int(length), int(seq), int(cmd), int(version)
 }
 
-//写入message
 func WriteMessage(w *bytes.Buffer, msg *Message) {
 	body := msg.ToData()
 	WriteHeader(int32(len(body)), int32(msg.seq), int32(msg.cmd), byte(msg.version), w)

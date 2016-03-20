@@ -149,6 +149,7 @@ func (client *Client) HandleSaveAndEnqueueGroup(sae *SAEMessage) {
 		m := &Message{cmd: MSG_PUBLISH_GROUP, body: am}
 		
 		if c, ok := route_clients[client.serverId]; ok {
+			log.Infoln("route group message:", m)
 			c.wt <- m
 		}
 			
@@ -195,6 +196,7 @@ func (client *Client) HandleSaveAndEnqueue(sae *SAEMessage) {
 		m := &Message{cmd: MSG_PUBLISH, body: am}
 		
 		if c, ok := route_clients[client.serverId]; ok {
+			log.Infoln("route message:", m)
 			c.wt <- m
 		}
 		

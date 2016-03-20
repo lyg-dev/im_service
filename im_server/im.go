@@ -199,6 +199,16 @@ func DialStorageFun(addr string) func()(*StorageConn, error) {
 			log.Error("connect storage err:", err)
 			return nil, err
 		}
+		
+		msg := &ServerID{
+			serverid : config.server_id,
+		}
+		
+		m := &Message{}
+		m.cmd = MSG_SERVER_REGISTER
+		m.body = msg
+	
+		SendMessage(storage.conn, m)
 		return storage, nil
 	}
 	return f
@@ -263,6 +273,7 @@ func main() {
 	for _, addr := range(config.route_addrs) {
 		channel := NewChannel(addr, DispatchAppMessage)
 		channel.Start()
+		channel.Register()
 		route_channels = append(route_channels, channel)
 	}
 	

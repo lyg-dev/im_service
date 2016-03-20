@@ -56,6 +56,18 @@ func NewChannel(addr string, f func(*AppMessage)) *Channel {
 	return channel
 }
 
+func (channel *Channel) Register() {
+	msg := &ServerID{
+		serverid : config.server_id,
+	}
+	
+	m := &Message{}
+	m.cmd = MSG_SERVER_REGISTER
+	m.body = msg
+	
+	channel.wt <- m
+}
+
 func (channel *Channel) Publish(amsg *AppMessage) {
 	msg := &Message{cmd: MSG_PUBLISH, body: amsg}
 	channel.wt <- msg
@@ -104,6 +116,8 @@ func (channel *Channel) RunOnce(conn *net.TCPConn) {
 			seq = seq + 1
 			msg.seq = seq
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			log.Info("channel send message:", Command(msg.cmd))
+			log.Infoln(msg.body)
 			err := SendMessage(conn, msg)
 			if err != nil {
 				log.Info("channel send message:", err)
