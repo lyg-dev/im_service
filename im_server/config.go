@@ -64,7 +64,8 @@ func read_cfg(cfg_path string) *Config {
 	app_cfg := make(map[string]string)
 	err := cfg.Load(cfg_path, app_cfg)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return nil
 	}
 
 	config.server_id = get_string(app_cfg, "server_id")
@@ -80,14 +81,16 @@ func read_cfg(cfg_path string) *Config {
     array := strings.Split(str, " ")
 	config.storage_addrs = array
 	if len(config.storage_addrs) == 0 {
-		log.Fatal("storage pool config")
+		log.Println("storage pool config")
+		return nil
 	}
 
 	str = get_string(app_cfg, "route_pool")
     array = strings.Split(str, " ")
 	config.route_addrs = array
 	if len(config.route_addrs) == 0 {
-		log.Fatal("route pool config")
+		log.Println("route pool config")
+		return nil
 	}
 
 	return config

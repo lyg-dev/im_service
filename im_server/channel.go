@@ -131,6 +131,13 @@ func (channel *Channel) Run() {
 	for {
 		conn, err := net.Dial("tcp", channel.addr)
 		if err != nil {
+			mutex.Lock()
+			 _, ok := route_channels_map[channel.addr]
+			mutex.Unlock()
+			if !ok {
+				break;
+			}
+			
 			log.Info("connect route server error:", err)
 			nsleep *= 2
 			if nsleep > 60*1000 {

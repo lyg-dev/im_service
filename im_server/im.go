@@ -18,7 +18,10 @@
  */
 
 package main
-import "net"
+import (
+	"net"
+	"sync"
+)
 import "fmt"
 import "flag"
 import "time"
@@ -33,13 +36,21 @@ var server_id string
 
 //storage server
 var storage_channels []*StorageChannel
+var storage_channels_map map[string]*StorageChannel
 
 //route server
 var route_channels []*Channel
+var route_channels_map map[string]*Channel
+
+//storage pool
+var storage_pools []*StorageConnPool
+var storage_pools_map map[string]*StorageConnPool
+
+var mutex sync.Mutex
+var config_path string
 
 var route *Route
 var redis_pool *redis.Pool
-var storage_pools []*StorageConnPool
 var config *Config
 var server_summary *ServerSummary
 
@@ -84,16 +95,25 @@ func NewRedisPool(server, password string) *redis.Pool {
 }
 
 func GetStorageConnPool(uid int64) *StorageConnPool {
+	mutex.Lock()
+	defer mutex.Unlock()
+	
 	index := uid%int64(len(storage_pools))
 	return storage_pools[index]
 }
 
 func GetGroupStorageConnPool(gid int64) *StorageConnPool {
+	mutex.Lock()
+	defer mutex.Unlock()
+	
 	index := gid%int64(len(storage_pools))
 	return storage_pools[index]
 }
 
 func GetRouteChannel() *Channel{
+	mutex.Lock()
+	defer mutex.Unlock()
+	
 	rand.Seed(time.Now().Unix())
 	index := rand.Intn(len(route_channels))
 	return route_channels[index]
@@ -214,6 +234,118 @@ func DialStorageFun(addr string) func()(*StorageConn, error) {
 	return f
 }
 
+//动态维护配置的storage, route节点
+func ConfigLoop() {
+	for {
+		time.Sleep(time.Duration(60)*time.Second)
+		
+		//读配置文件
+		cfg := read_cfg(config_path)
+		if cfg == nil {
+			continue
+		}
+		
+		need := false
+		//计算storage有节点下掉或者新节点则重新配置
+		if len(cfg.storage_addrs) < len(config.storage_addrs) {
+			//节点下掉
+			need = true
+		} else {
+			//判断有无新增节点
+			for _, addr := range cfg.storage_addrs {
+				if _, ok := storage_pools_map[addr]; !ok {
+					need = true
+					break;
+				}
+			}
+		}
+		
+		if need {
+			mutex.Lock()
+			
+			storage_pools_new := make([]*StorageConnPool, 0)
+			storage_pools_map_new := make(map[string]*StorageConnPool)
+			storage_channels_new := make([]*StorageChannel, 0)
+			storage_channels_map_new := make(map[string]*StorageChannel)
+		
+			for _, addr := range(cfg.storage_addrs) {
+				if pool, ok := storage_pools_map[addr]; ok {
+					storage_pools_new = append(storage_pools_new, pool)
+					storage_pools_map_new[addr] = pool
+				} else {
+					f := DialStorageFun(addr)
+					pool := NewStorageConnPool(100, 500, 600 * time.Second, f) 
+					storage_pools_new = append(storage_pools_new, pool)
+					storage_pools_map_new[addr] = pool
+				}
+				
+				if pool, ok := storage_channels_map[addr]; ok {
+					storage_channels_new = append(storage_channels_new, pool)
+					storage_channels_map_new[addr] = pool
+				} else {
+					sc := NewStorageChannel(addr, RouteMessage)
+					sc.Start()
+					sc.Register()
+					storage_channels_new = append(storage_channels_new, sc)
+					storage_channels_map_new[addr] = sc
+				}
+			}
+			
+			storage_pools = storage_pools_new
+			storage_pools_map = storage_pools_map_new
+			
+			storage_channels = storage_channels_new
+			storage_channels_map = storage_channels_map_new
+			
+			config.storage_addrs = cfg.storage_addrs
+			
+			mutex.Unlock()
+		}
+	
+		need = false
+		//计算route有节点下掉或者新节点则重新配置
+		if len(cfg.route_addrs) < len(config.route_addrs) {
+			//节点下掉
+			need = true
+		} else {
+			//判断有无新增节点
+			for _, addr := range cfg.route_addrs {
+				if _, ok := route_channels_map[addr]; !ok {
+					need = true
+					break;
+				}
+			}
+		}
+		
+		if need {
+			mutex.Lock()
+			
+			route_channels_new := make([]*Channel, 0)
+			route_channels_map_new := make(map[string]*Channel)
+		
+			for _, addr := range(cfg.route_addrs) {
+				if pool, ok := route_channels_map[addr]; ok {
+					route_channels_new = append(route_channels_new, pool)
+					route_channels_map_new[addr] = pool
+				} else {
+					channel := NewChannel(addr, DispatchAppMessage)
+					channel.Start()
+					channel.Register()
+					route_channels_new = append(route_channels_new, channel)
+					route_channels_map_new[addr] = channel
+				}
+			}
+			
+			route_channels = route_channels_new
+			route_channels_map = route_channels_map_new
+			
+			config.route_addrs = cfg.route_addrs
+			
+			mutex.Unlock()
+		}		
+	}
+}
+
 func LoadDBData() {
 	db, err := sql.Open("mysql", config.mysqldb_appdatasource)
 	if err != nil {
@@ -241,7 +373,11 @@ func main() {
 		return
 	}
 
-	config = read_cfg(flag.Args()[0])
+	config_path = flag.Args()[0]
+	config = read_cfg(config_path)
+	if config == nil {
+		return
+	}
 	
 	server_id = config.server_id
 	
@@ -254,30 +390,37 @@ func main() {
 	redis_pool = NewRedisPool(config.redis_address, config.redis_password)
 
 	storage_pools = make([]*StorageConnPool, 0)
+	storage_pools_map = make(map[string]*StorageConnPool)
 	for _, addr := range(config.storage_addrs) {
 		f := DialStorageFun(addr)
 		pool := NewStorageConnPool(100, 500, 600 * time.Second, f) 
 		storage_pools = append(storage_pools, pool)
+		storage_pools_map[addr] = pool
 	}
 
 	storage_channels = make([]*StorageChannel, 0)
-
+	storage_channels_map = make(map[string]*StorageChannel)
 	for _, addr := range(config.storage_addrs) {
 		sc := NewStorageChannel(addr, RouteMessage)
 		sc.Start()
 		sc.Register()
 		storage_channels = append(storage_channels, sc)
+		storage_channels_map[addr] = sc
 	}
 
 	route_channels = make([]*Channel, 0)
+	route_channels_map = make(map[string]*Channel)
 	for _, addr := range(config.route_addrs) {
 		channel := NewChannel(addr, DispatchAppMessage)
 		channel.Start()
 		channel.Register()
 		route_channels = append(route_channels, channel)
+		route_channels_map[addr] = channel
 	}
 	
 	LoadDBData()
+	
+	go ConfigLoop()
 
 	go StartSocketIO(config.socket_io_address)
 	ListenClient()

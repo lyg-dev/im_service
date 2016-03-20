@@ -93,6 +93,13 @@ func (sc *StorageChannel) Run() {
 	for {
 		conn, err := net.Dial("tcp", sc.addr)
 		if err != nil {
+			mutex.Lock()
+			_, ok := storage_channels_map[sc.addr]
+			mutex.Unlock()
+			if !ok {
+				break;
+			}
+			
 			log.Info("connect server error:", err)
 			nsleep *= 2
 			if nsleep > 60*1000 {
