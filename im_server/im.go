@@ -354,7 +354,7 @@ func LoadDBData() {
 	}
 	defer db.Close()
 	
-	//加载好有数据
+	//加载好友数据
 	OpLoadAllFriends(db)
 	
 	//加载黑名单数据
