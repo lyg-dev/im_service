@@ -419,7 +419,7 @@ func DeleteGroup(db *sql.DB, id int64) bool {
 }
 
 func OpLoadAllGroup(db *sql.DB) {
-	stmtIns, err := db.Prepare("select id, title, desc, isPrivate, isAllowInvite, owner, gouhao from `group` where isDeleted=0 and type=1")
+	stmtIns, err := db.Prepare("select `id`, `title`, `desc`, `isPrivate`, `isAllowInvite`, `owner`, `gouhao` from `group` where isDeleted=0 and type=1")
 	if err != nil {
 		log.Info("error:", err)
 		return
